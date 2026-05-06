@@ -115,21 +115,24 @@ Implemented now:
 - Prompt builder that includes summary, plan, progress, artifacts, and skills
 - Artifact, progress, and event persistence
 - CLI entrypoint for running a session
+- Child task sessions with parent-child linkage using the durable session model
 - Tests for the current scaffold
 
 Partially implemented:
 
-- Task delegation exists only as a structured stub result
 - Summary generation exists but is simple and not model-backed
-- Stage completion exists but does not yet evaluate explicit completion conditions
+- Stage completion exists, but stage advancement still relies on the runner decision instead of explicit evaluator logic over completion conditions and required outputs
 - Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and an Azure OpenAI adapter for structured output and tool-calling
+- Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
+- Stage definitions include `completion_conditions`, `output_artifacts`, and `max_loops`, but only the stage shape is modeled so far; evaluator and loop enforcement behavior are not yet active
 
 Not yet implemented:
 
-- True child task sessions and lineage tables
 - HTTP API and event streaming
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
+- Explicit stage evaluator logic for artifact requirements and completion conditions
+- Stage loop accounting and halting behavior based on `max_loops`
 
 ## Architecture Requirements
 
@@ -141,16 +144,21 @@ Not yet implemented:
 
 ## Acceptance Criteria For Next Milestone
 
-- A parent session can spawn a real child task session and consume its result
 - Stage advancement depends on explicit evaluator logic rather than a hardcoded runner decision
+- A stage that does not satisfy evaluator rules halts or fails cleanly after its configured loop limit
 - A live model-backed agent runner can complete at least one full staged workflow
 - Session summaries remain bounded as session length grows
 - Progress and events are queryable through a thin service interface
 
-Implementation note for the next delegation milestone:
+Implementation note for the completed delegation milestone:
 
 - Child task sessions should reuse the parent stage definition for context and completion semantics in the first implementation rather than introducing a new task-stage model
 - Parent-child lineage should use the existing durable session model before adding dedicated lineage tables
+
+Implementation note for the next orchestration milestone:
+
+- The first stage evaluator should use concrete persisted signals, starting with required artifacts declared in `output_artifacts`, before introducing a richer completion-condition DSL
+- Loop accounting should remain in orchestration state so the system can halt deterministically when a stage exceeds `max_loops`
 
 Implementation note for the live-model milestone:
 
@@ -164,3 +172,4 @@ Implementation note for the live-model milestone:
 - Should stage definitions remain YAML-first or move into a richer config model?
 - How strict should shell command policies be in the first live-model milestone?
 - What is the smallest useful HTTP API surface for the next iteration?
+- Should `completion_conditions` stay descriptive until a later iteration, or should they become a parsed policy format once artifact-based evaluation is in place?

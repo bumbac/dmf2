@@ -17,7 +17,7 @@ This implementation follows the OpenCode reference at a structural level, adapte
 
 ## Current Implementation Progress
 
-The current codebase is a functional scaffold with a working provider boundary, but it is not yet a finished product.
+The current codebase is a functional scaffold with a working provider boundary, and it now includes real child task sessions, but it is not yet a finished product.
 
 Implemented:
 
@@ -33,21 +33,23 @@ Implemented:
 - Prompt assembly from summary, plan, progress, artifacts, and skills in `src/dmf2_agents/prompting.py`
 - LangGraph stage loop in `src/dmf2_agents/orchestrator.py`
 - Provider abstraction with a deterministic stub backend and Azure OpenAI adapter in `src/dmf2_agents/providers.py`
+- Child task session creation and parent-child linkage in `src/dmf2_agents/tasks.py`
 - Bootstrap and CLI entrypoint in `src/dmf2_agents/bootstrap.py` and `src/dmf2_agents/cli.py`
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
 Implemented but intentionally simplified:
 
 - The `AgentRunner` routes decisions through a provider abstraction with a deterministic stub backend by default and an Azure OpenAI adapter when configured, but the live path has only been validated through narrow adapter tests rather than a full end-to-end staged workflow
-- `run_task_agent` returns a structured stub result rather than spawning a true child session
-- Stage completion is driven by the runner directly, not by evaluating explicit completion conditions
+- `run_task_agent` now spawns a true child session and returns a structured task result, but task semantics still reuse the parent stage context and there are not yet dedicated lineage tables
+- Stage completion is still driven by the runner directly, not by evaluating explicit completion conditions or required artifacts
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
+- Stage definitions include `completion_conditions`, `output_artifacts`, and `max_loops`, but orchestration does not yet evaluate or enforce them
 
 Not yet implemented:
 
-- True child task sessions with separate lineage, summaries, and persisted session records
 - Stage completion evaluators based on artifact existence, validation checks, or task outputs
+- Stage loop accounting and clean halting when a stage exceeds `max_loops`
 - HTTP API for session creation, monitoring, and event streaming
 - Richer permission policies by stage, path, or command patterns
 - Resume behavior for existing sessions and tasks
@@ -55,30 +57,9 @@ Not yet implemented:
 
 ## Next Steps
 
-### 1. Implement true task sessions for subagents
+### 1. Add explicit stage completion evaluators
 
 Status: next
-
-Why:
-
-- The main architectural promise is independent agent execution with shared intermediate results and lineage
-- The current `run_task_agent` stub does not create isolation, persistence, or resumability
-
-What to implement:
-
-- Add task session creation linked to a parent session
-- Reuse the parent stage definition as the child session context rather than inventing a synthetic task stage
-- Persist parent-child session lineage explicitly through `parent_session_id`
-- Allow child sessions to have their own messages, summaries, progress, and artifacts
-- Return a structured `TaskResult` containing task id, summary, artifact ids, and recommended next action
-
-Definition of done:
-
-- Parent agent can spawn a reviewer or specialist subagent as a true child session
-- Child outputs are persisted and visible to the parent session
-- Tests validate lineage and independent state
-
-### 2. Add explicit stage completion evaluators
 
 Why:
 
@@ -96,6 +77,26 @@ Definition of done:
 
 - `SessionOrchestrator` advances stages only when evaluator rules pass
 - Tests cover passing and failing stage transitions
+
+### 2. Enforce stage loop limits and halting behavior
+
+Why:
+
+- The current orchestration loop can continue indefinitely when a stage never satisfies completion conditions
+- `StageDefinition.max_loops` already exists in the model and should become active behavior
+
+What to implement:
+
+- Track stage attempt counts in orchestration state
+- Halt or fail the session cleanly when a stage exceeds `max_loops`
+- Emit explicit events when a stage is retried and when it halts because loop limits are reached
+- Keep loop enforcement in orchestration rather than provider logic
+
+Definition of done:
+
+- A non-completing stage stops after its configured number of attempts
+- The session is marked failed with clear stage-level events and persisted state
+- Tests cover retry and halt behavior
 
 ### 3. Prove the live model-backed runner end to end
 
@@ -171,19 +172,20 @@ Definition of done:
 
 ## Recommended Execution Order
 
-1. True task sessions and lineage
-2. Stage evaluators
+1. Stage evaluators
+2. Stage loop enforcement and halting
 3. End-to-end live model validation
 4. Better summary and context compaction
 5. HTTP API and event streaming
 6. Permission hardening
 
-This order preserves momentum while keeping risk low. The provider boundary is already in place, so the next priority is to make delegation and completion reliable before expanding the external surface.
+This order preserves momentum while keeping risk low. Task delegation is now real enough for the current milestone, so the next priority is to make stage completion and failure semantics reliable before expanding the external surface.
 
 ## Risks And Constraints
 
-- Task sessions can become tangled with parent session state if lineage is not modeled explicitly
 - Reusing the parent stage definition for child task context is intentionally minimal, but it means task semantics stay coupled to the parent stage until a richer task model exists
+- Stage evaluators can become too implicit if `completion_conditions` stay free-form without a clear initial contract
+- Loop enforcement must avoid masking useful retries while still preventing infinite stage churn
 - Real model integration can still blur separation of concerns if tool logic leaks into provider code
 - Shell and filesystem tools become a real safety concern once live model execution is enabled
 - Prompt growth will become a practical issue quickly after enabling live model reasoning
@@ -194,8 +196,8 @@ This order preserves momentum while keeping risk low. The provider boundary is a
 Add tests for:
 
 - Real provider adapter behavior behind a small mocked boundary
-- Parent-child task session creation and persistence
 - Stage evaluator success and failure paths
+- Stage retry and halt behavior based on `max_loops`
 - End-to-end live-model workflow behavior once a safe integration test path exists
 - Summary compaction behavior on longer sessions
 - Path and command permission enforcement
