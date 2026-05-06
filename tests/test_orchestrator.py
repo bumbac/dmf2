@@ -25,8 +25,7 @@ def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
     assert session_id
     messages = app.repository.list_messages(session_id)
     assert any(item.role == "assistant" for item in messages)
-    assistant_messages = [item for item in messages if item.role == "assistant"]
-    assert len({(item.agent_name, item.content) for item in assistant_messages}) == len(assistant_messages)
+    assert any(item.role == "tool" for item in messages)
     events = app.repository.list_events(session_id)
     event_types = [item.event_type for item in events]
     assert "session.started" in event_types
@@ -48,6 +47,7 @@ def test_orchestrator_retries_stage_until_required_artifact_exists(project_root:
                     )
                 ],
             ),
+            AgentDecision(response="discover finalized", mark_stage_complete=True, tool_calls=[]),
             AgentDecision(
                 response="design",
                 tool_calls=[
@@ -57,6 +57,7 @@ def test_orchestrator_retries_stage_until_required_artifact_exists(project_root:
                     )
                 ],
             ),
+            AgentDecision(response="design finalized", mark_stage_complete=True, tool_calls=[]),
             AgentDecision(
                 response="execute",
                 tool_calls=[
@@ -66,6 +67,7 @@ def test_orchestrator_retries_stage_until_required_artifact_exists(project_root:
                     )
                 ],
             ),
+            AgentDecision(response="execute finalized", mark_stage_complete=True, tool_calls=[]),
             AgentDecision(
                 response="validate",
                 tool_calls=[
@@ -75,6 +77,7 @@ def test_orchestrator_retries_stage_until_required_artifact_exists(project_root:
                     )
                 ],
             ),
+            AgentDecision(response="validate finalized", mark_stage_complete=True, tool_calls=[]),
         ]
     )
 

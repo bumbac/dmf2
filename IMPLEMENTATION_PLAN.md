@@ -19,6 +19,13 @@ This implementation follows the OpenCode reference at a structural level, adapte
 
 The current codebase is a functional scaffold with a working provider boundary, and it now includes real child task sessions, but it is not yet a finished product.
 
+Reality check after running the checked-in SQL migration example:
+
+- The end-to-end CLI session completes successfully against `data/example/migration-clean/input`
+- The current default backend is still the deterministic stub path unless live model settings are present
+- The sample run proves stage orchestration, persistence, and iterative tool-result feedback, but it does not yet produce real Oracle migration deliverables
+- The current stub backend repeatedly writes generic stage artifacts until the per-agent iteration limit, so the example is not yet a true file-to-output workflow
+
 Implemented:
 
 - `uv` project setup with Python package metadata and dependencies in `pyproject.toml`
@@ -34,6 +41,7 @@ Implemented:
 - LangGraph stage loop in `src/dmf2_agents/orchestrator.py`
 - Stage evaluator service in `src/dmf2_agents/evaluators.py`
 - Provider abstraction with a deterministic stub backend and Azure OpenAI adapter in `src/dmf2_agents/providers.py`
+- Iterative provider turns in `src/dmf2_agents/runner.py`, with persisted assistant and tool-result messages between decisions
 - Child task session creation and parent-child linkage in `src/dmf2_agents/tasks.py`
 - Bootstrap and CLI entrypoint in `src/dmf2_agents/bootstrap.py` and `src/dmf2_agents/cli.py`
 - Artifact-based stage completion that requires matching `stage_id` and artifact kind for the active stage
@@ -42,12 +50,13 @@ Implemented:
 
 Implemented but intentionally simplified:
 
-- The `AgentRunner` routes decisions through a provider abstraction with a deterministic stub backend by default and an Azure OpenAI adapter when configured, but the live path has only been validated through narrow adapter tests rather than a full end-to-end staged workflow
+- The `AgentRunner` now supports iterative provider turns and feeds tool results back into the provider, but the live path has not yet been validated through a real domain-specific staged workflow that produces deliverable files
 - `run_task_agent` now spawns a true child session and returns a structured task result, but task semantics still reuse the parent stage context and there are not yet dedicated lineage tables
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
 - Stage completion currently supports artifact-based evaluation only; richer validation checks, task-result signals, and parsed completion-condition policies are not yet implemented
 - The provider contract still includes `mark_stage_complete`, but orchestration no longer uses it to advance stages
+- The checked-in SQL migration example can be invoked through the CLI, but it still yields generic note artifacts instead of Oracle migration outputs
 
 Not yet implemented:
 
@@ -56,17 +65,45 @@ Not yet implemented:
 - Richer permission policies by stage, path, or command patterns
 - Resume behavior for existing sessions and tasks
 - Dedicated tables for stage runs and task lineage
+- A deterministic example workflow path that reads `data/example/migration-clean/input` and writes real Oracle migration output
+- Sample-specific prompts, stages, and validation artifacts for the SQL-to-Oracle example
+- Output file conventions for generated example results
 
 ## Next Steps
 
-### 1. Prove the live model-backed runner end to end
+### 1. Make the checked-in SQL migration example run end to end
 
 Status: next
 
 Why:
 
+- A local end-to-end example is now a concrete product need, not just a nice-to-have demo
+- The current sample run completes structurally but does not produce usable migration output
+- A deterministic example path will make it much easier to validate the live-model path afterward
+
+What to implement:
+
+- Add explicit workflow conventions for the example input at `data/example/migration-clean/input`
+- Make the execution path read the example SQL files and produce Oracle-compatible output artifacts, and likely output files, instead of generic stage notes
+- Add a deterministic local success path for the sample when the backend is `stub`
+- Add validation that checks for expected deliverables, not just artifact existence
+- Ensure the final outputs are easy to inspect after the run
+
+Definition of done:
+
+- Running the CLI against the SQL migration sample produces Oracle-oriented outputs derived from the checked-in input files
+- The sample run succeeds locally without requiring a live model
+- Tests cover the deterministic example path and its output contract
+
+### 2. Prove the live model-backed runner end to end
+
+Status: after example workflow
+
+Why:
+
 - The provider boundary and Azure adapter exist, but the codebase has not yet proven a full staged workflow against a live model
 - The product goal still requires confidence that model decisions map cleanly into controlled tool execution
+- The local deterministic example path should define the same output contract the live model will need to satisfy
 
 What to implement:
 
@@ -80,7 +117,7 @@ Definition of done:
 - A live model-backed session can complete at least one staged workflow
 - Existing tests remain green and additional coverage exists around provider decisions in runner and orchestration boundaries
 
-### 2. Improve context management and summarization
+### 3. Improve context management and summarization
 
 Why:
 
@@ -99,7 +136,7 @@ Definition of done:
 - Long sessions can continue with bounded prompt size
 - Summary, plan, progress, and artifacts are all explicitly distinguishable in prompts and persistence
 
-### 3. Add a service API and event streaming surface
+### 4. Add a service API and event streaming surface
 
 Why:
 
@@ -116,7 +153,7 @@ Definition of done:
 
 - A client can create a session with a text message and monitor stages, progress, and events in real time
 
-### 4. Harden tool permissions and execution controls
+### 5. Harden tool permissions and execution controls
 
 Why:
 
@@ -133,7 +170,7 @@ Definition of done:
 - Disallowed tools, commands, and paths fail consistently with clear errors
 - Tests cover allowed and denied paths
 
-### 5. Extend stage evaluators beyond artifact existence
+### 6. Extend stage evaluators beyond artifact existence
 
 Why:
 
@@ -151,7 +188,7 @@ Definition of done:
 - Stages can require more than artifact existence without leaking completion logic back into the runner
 - Tests cover multi-signal completion and failure paths
 
-### 6. Add resume behavior and richer persistence for orchestration lineage
+### 7. Add resume behavior and richer persistence for orchestration lineage
 
 Why:
 
@@ -172,13 +209,14 @@ Definition of done:
 ## Recommended Execution Order
 
 1. End-to-end live model validation
-2. Better summary and context compaction
-3. HTTP API and event streaming
-4. Permission hardening
-5. Richer stage evaluators
-6. Resume behavior and lineage persistence
+2. Deterministic checked-in example workflow
+3. Better summary and context compaction
+4. HTTP API and event streaming
+5. Permission hardening
+6. Richer stage evaluators
+7. Resume behavior and lineage persistence
 
-This order preserves momentum while keeping risk low. Stage completion and failure semantics are now reliable enough for the current milestone, so the next priority is to validate the live-model path and improve context handling before expanding the external surface.
+This order preserves momentum while keeping risk low. The checked-in example should become a real file-to-output workflow first, because it creates a concrete contract for both the deterministic stub path and the live-model path before expanding the external surface.
 
 ## Risks And Constraints
 
@@ -188,11 +226,15 @@ This order preserves momentum while keeping risk low. Stage completion and failu
 - Prompt growth will become a practical issue quickly after enabling live model reasoning
 - Artifact-based stage completion is intentionally narrow and may not cover all workflow semantics without expanding evaluator inputs
 - Postgres schema is still minimal and may need migrations once stage runs and task lineage are introduced
+- A generic scaffold pipeline can appear healthy while still failing the product need for a concrete end-to-end example
+- If the stub path stays too generic, local development will continue to validate orchestration rather than real deliverable generation
 
 ## Testing Plan For Next Iterations
 
 Add tests for:
 
+- Deterministic example workflow behavior for `data/example/migration-clean/input`
+- Expected Oracle-oriented output artifacts or files from the example run
 - Real provider adapter behavior behind a small mocked boundary
 - End-to-end live-model workflow behavior once a safe integration test path exists
 - Summary compaction behavior on longer sessions

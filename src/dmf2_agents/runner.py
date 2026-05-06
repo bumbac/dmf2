@@ -4,7 +4,7 @@ from .artifacts import ArtifactService
 from .domain import AgentDefinition, AgentOutcome, MessageRecord
 from .memory import MemoryService
 from .prompting import PromptBuilder
-from .providers import ProviderClient
+from .providers import ProviderClient, ProviderMessage
 from .tools import ToolContext, ToolRegistry
 
 
@@ -42,32 +42,53 @@ class AgentRunner:
         )
         available_tools = self.tools.discover_for_agent(agent.name)
         tool_context = "\n".join(f"- {tool.name}: {tool.description}" for tool in available_tools) or "None"
-        decision = self.provider.decide(
-            agent=agent,
-            stage=stage,
-            prompt=f"{prompt}\n\nAvailable tools:\n{tool_context}\n\nUser input:\n{user_input}",
-            tools=available_tools,
-        )
-        self.memory.append_message(MessageRecord(session_id=session_id, role="assistant", agent_name=agent.name, content=decision.response))
         ctx = ToolContext(session_id=session_id, stage_id=stage.id, agent_name=agent.name, stage=stage)
         artifacts_written: list[dict[str, str]] = []
         progress_updates: list[str] = []
         tool_actions: list[dict[str, str]] = []
-        response = decision.response
-        for call in decision.tool_calls:
-            result = self.tools.run(agent.name, call.tool_name, ctx, **call.arguments)
-            tool_actions.append({"tool": call.tool_name, "status": "completed"})
-            if call.tool_name == "write_artifact":
-                artifacts_written.append({"id": result, "kind": str(call.arguments.get("kind", "artifact"))})
-            if call.tool_name == "update_progress":
-                progress_updates.append(str(call.arguments.get("message", "")))
-            if call.tool_name == "run_task_agent":
-                response = f"{response} {result.summary}".strip()
+        messages = [
+            ProviderMessage(role="user", content=f"{prompt}\n\nAvailable tools:\n{tool_context}\n\nUser input:\n{user_input}")
+        ]
+        response = ""
+        stage_complete = False
+        for _ in range(agent.max_iterations):
+            decision = self.provider.decide(agent=agent, stage=stage, messages=messages, tools=available_tools)
+            self.memory.append_message(
+                MessageRecord(session_id=session_id, role="assistant", agent_name=agent.name, content=decision.response)
+            )
+            messages.append(ProviderMessage(role="assistant", content=decision.response))
+            response = decision.response
+            stage_complete = decision.mark_stage_complete
+            if not decision.tool_calls:
+                break
+            for call in decision.tool_calls:
+                result = self.tools.run(agent.name, call.tool_name, ctx, **call.arguments)
+                tool_actions.append({"tool": call.tool_name, "status": "completed"})
+                tool_result = self._format_tool_result(call.tool_name, result)
+                self.memory.append_message(
+                    MessageRecord(session_id=session_id, role="tool", agent_name=agent.name, content=tool_result)
+                )
+                messages.append(ProviderMessage(role="tool", content=tool_result))
+                if call.tool_name == "write_artifact":
+                    artifacts_written.append({"id": result, "kind": str(call.arguments.get("kind", "artifact"))})
+                if call.tool_name == "update_progress":
+                    progress_updates.append(str(call.arguments.get("message", "")))
+                if call.tool_name == "run_task_agent":
+                    response = f"{response} {result.summary}".strip()
+        else:
+            response = f"{response} Iteration limit reached.".strip()
         return AgentOutcome(
             response=response,
-            stage_complete=decision.mark_stage_complete,
+            stage_complete=stage_complete,
             loaded_skills=[skill.name for skill in loaded_skill_defs],
             tool_actions=tool_actions,
             artifacts=artifacts_written,
             progress_updates=progress_updates,
         )
+
+    def _format_tool_result(self, tool_name: str, result: object) -> str:
+        if hasattr(result, "model_dump"):
+            payload = result.model_dump()
+        else:
+            payload = result
+        return f"Tool '{tool_name}' result: {payload}"

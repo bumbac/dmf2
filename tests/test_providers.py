@@ -7,7 +7,7 @@ import pytest
 
 from dmf2_agents.agents import AgentRegistry
 from dmf2_agents.config import build_provider_settings, get_settings
-from dmf2_agents.providers import AgentDecision, GatewayConfig, GatewayProvider, StubProvider, ToolCallDecision, build_provider
+from dmf2_agents.providers import AgentDecision, GatewayConfig, GatewayProvider, ProviderMessage, StubProvider, ToolCallDecision, build_provider
 from dmf2_agents.stages import StageRegistry
 from dmf2_agents.tools import ToolDefinition
 
@@ -20,7 +20,7 @@ def test_stub_provider_returns_tool_calls(project_root: Path) -> None:
     decision = StubProvider().decide(
         agent=agent,
         stage=stage,
-        prompt="prompt",
+        messages=[ProviderMessage(role="user", content="prompt")],
         tools=[
             ToolDefinition(name="update_progress", description="progress"),
             ToolDefinition(name="write_artifact", description="artifact"),
@@ -66,7 +66,7 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
         choices = [FakeChoice()]
 
     class FakeGatewayClient:
-        def create_response(self, *, prompt: str, tools: list[ToolDefinition]):
+        def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
             return FakeCompletion()
 
     provider = GatewayProvider(FakeGatewayClient())
@@ -77,7 +77,7 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
     decision = provider.decide(
         agent=agent,
         stage=stage,
-        prompt="prompt",
+        messages=[ProviderMessage(role="user", content="prompt")],
         tools=[ToolDefinition(name="write_artifact", description="artifact")],
     )
     assert isinstance(decision, AgentDecision)
@@ -86,6 +86,48 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
     assert decision.tool_calls == [
         ToolCallDecision(tool_name="write_artifact", arguments={"kind": "note", "title": "t", "content": "c"})
     ]
+
+
+def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> None:
+    class FakeMessage:
+        content = json.dumps({"response": "done", "mark_stage_complete": True})
+        tool_calls = [
+            type(
+                "ToolCall",
+                (),
+                {
+                    "function": type(
+                        "Function",
+                        (),
+                        {"name": "write_artifact", "arguments": "{"},
+                    )()
+                },
+            )()
+        ]
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletion:
+        choices = [FakeChoice()]
+
+    class FakeGatewayClient:
+        def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
+            return FakeCompletion()
+
+    provider = GatewayProvider(FakeGatewayClient())
+    agent = AgentRegistry().get("planner")
+    stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
+    assert agent is not None
+    assert stage is not None
+
+    with pytest.raises(ValueError, match="invalid JSON arguments"):
+        provider.decide(
+            agent=agent,
+            stage=stage,
+            messages=[ProviderMessage(role="user", content="prompt")],
+            tools=[ToolDefinition(name="write_artifact", description="artifact")],
+        )
 
 
 def test_build_provider_uses_stub_backend() -> None:

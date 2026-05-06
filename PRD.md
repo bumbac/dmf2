@@ -27,6 +27,7 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - Support subagent task execution with independent state and shared outcomes
 - Persist all important state in PostgreSQL
 - Expose progress and outputs in a way suitable for future API and UI clients
+- Support at least one concrete end-to-end example workflow that transforms real input files into a real deliverable output
 
 ## Non-Goals
 
@@ -80,6 +81,14 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - Tools must support permission checks before execution
 - Initial tool set must include file read, file write, shell command execution, artifact writing, progress updates, skill loading, task delegation, and stage completion signaling
 
+### Example Workflow Execution
+
+- The system must be able to run a concrete example workflow from checked-in sample input files to checked-in or generated output artifacts
+- The first example workflow must use `data/example/migration-clean/input` as input and produce Oracle-compatible migration outputs
+- The example workflow must not rely on live database access and must operate purely from provided files and persisted session state
+- The example workflow must have a deterministic success path for local development, even when a live model is not configured
+- The system must persist enough output for an operator to inspect what was read, what was produced, and whether validation passed
+
 ### Skills
 
 - Skills must be loaded from `SKILL.md` files
@@ -119,6 +128,7 @@ Implemented now:
 - Explicit stage evaluator logic based on persisted artifacts scoped by `stage_id` and artifact kind
 - Stage loop accounting and halting behavior based on `max_loops`, including retry and halt events
 - Tests for the current scaffold
+- The runner now supports iterative provider turns with persisted tool-result messages between decisions
 
 Partially implemented:
 
@@ -126,6 +136,7 @@ Partially implemented:
 - Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and an Azure OpenAI adapter for structured output and tool-calling
 - Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
 - Stage completion currently starts with artifact-based evaluation from `output_artifacts`; `completion_conditions` remain descriptive and are not yet parsed as a richer policy format
+- A CLI session can be run end to end against the sample SQL migration prompt, but the default stub backend still produces generic scaffold artifacts rather than Oracle migration deliverables
 
 Not yet implemented:
 
@@ -133,6 +144,9 @@ Not yet implemented:
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
 - Richer stage evaluator logic for validation checks, task-result presence, and parsed completion-condition policies
+- A deterministic file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
+- Prompt and stage definitions specialized enough for the SQL-to-Oracle sample to produce useful deliverables instead of generic notes
+- Output file conventions and validation rules for end-to-end example runs
 
 ## Architecture Requirements
 
@@ -147,6 +161,8 @@ Not yet implemented:
 - A live model-backed agent runner can complete at least one full staged workflow
 - Session summaries remain bounded as session length grows
 - Progress and events are queryable through a thin service interface
+- The checked-in SQL migration example can be executed locally end to end and produce Oracle-compatible output artifacts that are inspectable after the run
+- The same example has a deterministic local success path without requiring a live model, even if the quality is lower than the live path
 
 Implementation note for the completed delegation milestone:
 
@@ -170,6 +186,13 @@ Implementation note for the live-model milestone:
 - Provider adapters may use structured output and tool-calling features, but must return normalized decisions rather than execute tools directly
 - The model integration layer should be shaped like a swappable gateway client so model names, endpoints, and runtime parameters can change without changing orchestration code
 
+Implementation note for the first real example milestone:
+
+- The first end-to-end example should be treated as a product requirement, not just a demo prompt
+- The example should have explicit input discovery, output location, and validation expectations so success does not depend on generic stage notes
+- The stub backend may use deterministic logic for this example so local development can prove file-to-output behavior without external model access
+- The live-model path should reuse the same stages, artifacts, and output contract as the deterministic local path
+
 ## Open Questions
 
 - Which provider abstraction should be introduced first beyond Azure OpenAI support?
@@ -177,3 +200,4 @@ Implementation note for the live-model milestone:
 - How strict should shell command policies be in the first live-model milestone?
 - What is the smallest useful HTTP API surface for the next iteration?
 - When should `completion_conditions` move from descriptive metadata to a parsed policy format beyond artifact evaluation?
+- Should the first example workflow write final outputs only as persisted artifacts, or also materialize files under a checked output directory such as `data/example/migration-clean/output`?

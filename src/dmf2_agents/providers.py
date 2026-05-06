@@ -25,6 +25,11 @@ class AgentDecision(BaseModel):
     mark_stage_complete: bool = False
 
 
+class ProviderMessage(BaseModel):
+    role: str
+    content: str
+
+
 class GatewayConfig(BaseModel):
     provider: str
     model: str
@@ -41,13 +46,13 @@ class ProviderClient(Protocol):
         *,
         agent: AgentDefinition,
         stage: StageDefinition,
-        prompt: str,
+        messages: list[ProviderMessage],
         tools: list[ToolDefinition],
     ) -> AgentDecision: ...
 
 
 class GatewayClient(Protocol):
-    def create_response(self, *, prompt: str, tools: list[ToolDefinition]) -> Any: ...
+    def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any: ...
 
 
 class StubProvider:
@@ -56,10 +61,11 @@ class StubProvider:
         *,
         agent: AgentDefinition,
         stage: StageDefinition,
-        prompt: str,
+        messages: list[ProviderMessage],
         tools: list[ToolDefinition],
     ) -> AgentDecision:
         available_tools = {tool.name for tool in tools}
+        prompt = "\n\n".join(message.content for message in messages)
         tool_calls: list[ToolCallDecision] = []
         if "update_progress" in available_tools:
             tool_calls.append(
@@ -106,7 +112,7 @@ class OpenAIGatewayClient:
             api_version=config.api_version,
         )
 
-    def create_response(self, *, prompt: str, tools: list[ToolDefinition]) -> Any:
+    def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any:
         tool_payload = [
             {
                 "type": "function",
@@ -132,7 +138,7 @@ class OpenAIGatewayClient:
                         "Always return a final response message, and set mark_stage_complete only when the stage work is done."
                     ),
                 },
-                {"role": "user", "content": prompt},
+                *[message.model_dump() for message in messages],
             ],
             tools=tool_payload or None,
             temperature=self.config.temperature,
@@ -165,10 +171,10 @@ class GatewayProvider:
         *,
         agent: AgentDefinition,
         stage: StageDefinition,
-        prompt: str,
+        messages: list[ProviderMessage],
         tools: list[ToolDefinition],
     ) -> AgentDecision:
-        completion = self.client.create_response(prompt=prompt, tools=tools)
+        completion = self.client.create_response(messages=messages, tools=tools)
         choice = completion.choices[0].message
         content = choice.content or "{}"
         try:

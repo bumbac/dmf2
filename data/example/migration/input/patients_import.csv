@@ -1,0 +1,13 @@
+patient_id,first_name,last_name,date_of_birth,admission_date,department_code,diagnosis_code,attending_physician
+1001,Elena,Novak,1984-03-12,2026-04-28,CARD,I21.9,Dr. Patel
+1002,Marcus,Weber,1972-11-03,2026-04-29,ER,N39.0,Dr. Singh
+1003,Sofia,Rossi,1990-07-19,2026-04-29,ORTH,S72.001A,Dr. Chen
+1004,Jakub,Horak,1965-01-22,2026-04-30,CARD,I50.9,Dr. Patel
+1005,Amira,Hassan,1995-09-05,2026-04-30,PULM,J18.9,Dr. Okafor
+1006,Tomas,Svoboda,1988-12-14,2026-05-01,NEU,G43.909,Dr. Nielsen
+1007,Nina,Kowalski,2001-04-30,2026-05-01,ER,S06.0X9A,Dr. Singh
+1008,Diego,Morales,1979-08-08,2026-05-02,CARD,Z95.2,Dr. Patel
+1009,Freya,Andersen,1993-02-27,2026-05-02,PULM,J44.1,Dr. Okafor
+1010,Lukas,Bauer,1958-06-11,2026-05-03,ORTH,M25.561,Dr. Chen
+1011,Chiara,Bianchi,1986-10-02,2026-05-03,NEU,R51.9,Dr. Nielsen
+1012,Omar,Farouk,1974-05-16,2026-05-04,ER,R10.9,Dr. Singh
