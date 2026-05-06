@@ -1,0 +1,29 @@
+[project]
+name = "dmf2-agents"
+version = "0.1.0"
+description = "Controlled engineering-first multi-agent orchestration with LangGraph"
+readme = "README.md"
+authors = [
+    { name = "Matej Suty", email = "matej.suty@bighub.cz" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=0.6.7",
+    "openai>=1.54.4",
+    "pydantic>=2.11.7",
+    "pyyaml>=6.0.3",
+    "sqlalchemy>=2.0.44",
+    "psycopg[binary]>=3.2.12",
+]
+
+[project.scripts]
+dmf2-agents = "dmf2_agents:main"
+
+[build-system]
+requires = ["uv_build>=0.9.5,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

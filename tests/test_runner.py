@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from dmf2_agents.agents import AgentRegistry
+from dmf2_agents.artifacts import ArtifactService
+from dmf2_agents.domain import AgentDefinition, StageDefinition
+from dmf2_agents.memory import MemoryService
+from dmf2_agents.prompting import PromptBuilder
+from dmf2_agents.providers import AgentDecision, ToolCallDecision
+from dmf2_agents.repository import Repository
+from dmf2_agents.runner import AgentRunner
+from dmf2_agents.skills import SkillRegistry
+from dmf2_agents.storage import Database
+from dmf2_agents.tools import PermissionService, ToolRegistry
+
+
+class FakeProvider:
+    def __init__(self, decision: AgentDecision):
+        self.decision = decision
+
+    def decide(self, **kwargs) -> AgentDecision:
+        return self.decision
+
+
+def build_runner(project_root: Path, decision: AgentDecision) -> tuple[AgentRunner, Repository]:
+    database = Database("sqlite+pysqlite:///:memory:")
+    database.create_all()
+    repo = Repository(database)
+    memory = MemoryService(repo)
+    artifacts = ArtifactService(repo)
+    tools = ToolRegistry(
+        root=project_root,
+        memory=memory,
+        artifacts=artifacts,
+        skills=SkillRegistry(project_root / "skills"),
+        permission=PermissionService({agent.name: set(agent.allowed_tools) for agent in AgentRegistry().list()}),
+    )
+    runner = AgentRunner(
+        memory=memory,
+        artifacts=artifacts,
+        tools=tools,
+        prompt_builder=PromptBuilder(),
+        provider=FakeProvider(decision),
+    )
+    return runner, repo
+
+
+def test_runner_executes_provider_tool_calls(project_root: Path) -> None:
+    runner, repo = build_runner(
+        project_root,
+        AgentDecision(
+            response="done",
+            mark_stage_complete=True,
+            tool_calls=[
+                ToolCallDecision(tool_name="update_progress", arguments={"message": "working", "status": "in_progress"}),
+                ToolCallDecision(
+                    tool_name="write_artifact",
+                    arguments={"kind": "discover_note", "title": "Discover", "content": "artifact body"},
+                ),
+            ],
+        ),
+    )
+    stage = StageDefinition(id="discover", name="Discover", goal="Understand", assigned_agents=["planner"])
+    agent = AgentRegistry().get("planner")
+    assert agent is not None
+    outcome = runner.run(session_id="s1", stage=stage, agent=agent, user_input="hello")
+    assert outcome.stage_complete is True
+    assert outcome.progress_updates == ["working"]
+    assert len(outcome.artifacts) == 1
+    assert repo.list_progress("s1")[0].message == "working"
+    assert repo.list_artifacts("s1")[0].kind == "discover_note"
+
+
+def test_runner_denied_tool_call_raises(project_root: Path) -> None:
+    database = Database("sqlite+pysqlite:///:memory:")
+    database.create_all()
+    repo = Repository(database)
+    memory = MemoryService(repo)
+    artifacts = ArtifactService(repo)
+    tools = ToolRegistry(
+        root=project_root,
+        memory=memory,
+        artifacts=artifacts,
+        skills=SkillRegistry(project_root / "skills"),
+        permission=PermissionService({"planner": {"write_artifact"}}),
+    )
+    runner = AgentRunner(
+        memory=memory,
+        artifacts=artifacts,
+        tools=tools,
+        prompt_builder=PromptBuilder(),
+        provider=FakeProvider(
+            AgentDecision(
+                response="done",
+                tool_calls=[ToolCallDecision(tool_name="run_command", arguments={"command": ["pwd"]})],
+            )
+        ),
+    )
+    with pytest.raises(PermissionError):
+        runner.run(
+            session_id="s1",
+            stage=StageDefinition(id="execute", name="Execute", goal="Build", assigned_agents=["planner"]),
+            agent=AgentDefinition(
+                name="planner",
+                description="p",
+                system_prompt="prompt",
+                allowed_tools=["write_artifact"],
+            ),
+            user_input="hello",
+        )

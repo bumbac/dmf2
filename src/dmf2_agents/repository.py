@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+from sqlalchemy import desc, select
+
+from .domain import ArtifactRecord, EventRecord, MessageRecord, PlanRecord, ProgressRecord, SessionRecord, SummaryRecord
+from .storage import ArtifactTable, Database, EventTable, MessageTable, PlanTable, ProgressTable, SessionTable, SummaryTable
+
+
+class Repository:
+    def __init__(self, database: Database):
+        self.database = database
+
+    def create_session(self, record: SessionRecord) -> SessionRecord:
+        with self.database.session() as db:
+            db.add(SessionTable(**record.model_dump()))
+        return record
+
+    def update_session_status(self, session_id: str, status: str) -> None:
+        with self.database.session() as db:
+            row = db.get(SessionTable, session_id)
+            if row is None:
+                return
+            row.status = status
+
+    def add_message(self, record: MessageRecord) -> MessageRecord:
+        with self.database.session() as db:
+            db.add(MessageTable(**record.model_dump()))
+        return record
+
+    def list_messages(self, session_id: str) -> list[MessageRecord]:
+        with self.database.session() as db:
+            rows = db.execute(
+                select(MessageTable).where(MessageTable.session_id == session_id).order_by(MessageTable.created_at.asc())
+            ).scalars()
+            return [MessageRecord.model_validate(row, from_attributes=True) for row in rows]
+
+    def upsert_summary(self, record: SummaryRecord) -> SummaryRecord:
+        with self.database.session() as db:
+            db.add(SummaryTable(**record.model_dump()))
+        return record
+
+    def latest_summary(self, session_id: str) -> SummaryRecord | None:
+        with self.database.session() as db:
+            row = db.execute(
+                select(SummaryTable).where(SummaryTable.session_id == session_id).order_by(desc(SummaryTable.created_at)).limit(1)
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            return SummaryRecord.model_validate(row, from_attributes=True)
+
+    def upsert_plan(self, record: PlanRecord) -> PlanRecord:
+        with self.database.session() as db:
+            db.add(PlanTable(**record.model_dump()))
+        return record
+
+    def latest_plan(self, session_id: str) -> PlanRecord | None:
+        with self.database.session() as db:
+            row = db.execute(
+                select(PlanTable).where(PlanTable.session_id == session_id).order_by(desc(PlanTable.created_at)).limit(1)
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            return PlanRecord.model_validate(row, from_attributes=True)
+
+    def add_progress(self, record: ProgressRecord) -> ProgressRecord:
+        with self.database.session() as db:
+            db.add(ProgressTable(**record.model_dump()))
+        return record
+
+    def list_progress(self, session_id: str) -> list[ProgressRecord]:
+        with self.database.session() as db:
+            rows = db.execute(
+                select(ProgressTable).where(ProgressTable.session_id == session_id).order_by(ProgressTable.created_at.asc())
+            ).scalars()
+            return [ProgressRecord.model_validate(row, from_attributes=True) for row in rows]
+
+    def add_artifact(self, record: ArtifactRecord) -> ArtifactRecord:
+        with self.database.session() as db:
+            existing = db.execute(
+                select(ArtifactTable)
+                .where(ArtifactTable.session_id == record.session_id)
+                .where(ArtifactTable.kind == record.kind)
+                .order_by(desc(ArtifactTable.version))
+                .limit(1)
+            ).scalar_one_or_none()
+            payload = record.model_dump()
+            if existing is not None:
+                payload["version"] = existing.version + 1
+                record.version = payload["version"]
+            db.add(ArtifactTable(**payload))
+        return record
+
+    def list_artifacts(self, session_id: str) -> list[ArtifactRecord]:
+        with self.database.session() as db:
+            rows = db.execute(
+                select(ArtifactTable).where(ArtifactTable.session_id == session_id).order_by(ArtifactTable.created_at.asc())
+            ).scalars()
+            return [ArtifactRecord.model_validate(row, from_attributes=True) for row in rows]
+
+    def add_event(self, record: EventRecord) -> EventRecord:
+        with self.database.session() as db:
+            db.add(EventTable(**record.model_dump()))
+        return record
+
+    def list_events(self, session_id: str) -> list[EventRecord]:
+        with self.database.session() as db:
+            rows = db.execute(
+                select(EventTable).where(EventTable.session_id == session_id).order_by(EventTable.created_at.asc())
+            ).scalars()
+            return [EventRecord.model_validate(row, from_attributes=True) for row in rows]
