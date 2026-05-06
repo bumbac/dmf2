@@ -5,6 +5,7 @@ from pathlib import Path
 from .agents import AgentRegistry
 from .artifacts import ArtifactService
 from .config import build_provider_settings, get_settings
+from .evaluators import StageEvaluator
 from .events import EventBus
 from .memory import MemoryService
 from .orchestrator import SessionOrchestrator
@@ -27,6 +28,7 @@ def build_app(project_root: Path | None = None) -> SessionOrchestrator:
     repository = Repository(database)
     memory = MemoryService(repository)
     artifacts = ArtifactService(repository)
+    evaluator = StageEvaluator(artifacts)
     events = EventBus(repository)
     stages = StageRegistry(root / "examples" / "pipeline.yaml")
     agents = AgentRegistry()
@@ -44,4 +46,5 @@ def build_app(project_root: Path | None = None) -> SessionOrchestrator:
         stages=stages,
         agents=agents,
         runner=runner,
+        evaluator=evaluator,
     )

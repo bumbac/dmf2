@@ -7,6 +7,7 @@ from langgraph.graph import END, StateGraph
 from .agents import AgentRegistry
 from .artifacts import ArtifactService
 from .domain import EventRecord, MessageRecord, SessionRecord
+from .evaluators import StageEvaluator
 from .events import EventBus
 from .memory import MemoryService
 from .repository import Repository
@@ -19,6 +20,7 @@ class GraphState(TypedDict):
     user_input: str
     current_stage_id: str | None
     stage_queue: list[str]
+    stage_attempts: dict[str, int]
     goal_reached: bool
     halted: bool
 
@@ -33,6 +35,7 @@ class SessionOrchestrator:
         stages: StageRegistry,
         agents: AgentRegistry,
         runner: AgentRunner,
+        evaluator: StageEvaluator,
     ):
         self.repository = repository
         self.memory = memory
@@ -41,6 +44,7 @@ class SessionOrchestrator:
         self.stages = stages
         self.agents = agents
         self.runner = runner
+        self.evaluator = evaluator
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -71,6 +75,7 @@ class SessionOrchestrator:
             "user_input": user_input,
             "current_stage_id": None,
             "stage_queue": [item.id for item in self.stages.list()],
+            "stage_attempts": {},
             "goal_reached": False,
             "halted": False,
         }
@@ -99,6 +104,9 @@ class SessionOrchestrator:
         if agent is None:
             state["halted"] = True
             return state
+        attempts = dict(state["stage_attempts"])
+        attempts[stage.id] = attempts.get(stage.id, 0) + 1
+        state["stage_attempts"] = attempts
         outcome = self.runner.run(session_id=state["session_id"], stage=stage, agent=agent, user_input=state["user_input"])
         self.events.publish(
             EventRecord(
@@ -107,16 +115,38 @@ class SessionOrchestrator:
                 payload={"stage_id": stage.id, "agent": agent.name, "response": outcome.response},
             )
         )
-        if outcome.stage_complete:
-            state["stage_queue"] = state["stage_queue"][1:]
-            self.events.publish(
-                EventRecord(session_id=state["session_id"], event_type="stage.completed", payload={"stage_id": stage.id})
-            )
         return state
 
     def _evaluate(self, state: GraphState) -> GraphState:
         if state["halted"]:
             return state
+        stage = self.stages.get(state["current_stage_id"] or "")
+        if stage is None:
+            state["halted"] = True
+            return state
+        evaluation = self.evaluator.evaluate(session_id=state["session_id"], stage=stage)
+        if evaluation.passed:
+            state["stage_queue"] = state["stage_queue"][1:]
+            self.events.publish(
+                EventRecord(session_id=state["session_id"], event_type="stage.completed", payload={"stage_id": stage.id})
+            )
+        else:
+            attempt = state["stage_attempts"].get(stage.id, 0)
+            payload = {
+                "stage_id": stage.id,
+                "attempt": attempt,
+                "max_loops": stage.max_loops,
+                "missing_artifacts": evaluation.missing_artifacts,
+            }
+            if attempt >= stage.max_loops:
+                state["halted"] = True
+                self.events.publish(
+                    EventRecord(session_id=state["session_id"], event_type="stage.halted", payload=payload)
+                )
+            else:
+                self.events.publish(
+                    EventRecord(session_id=state["session_id"], event_type="stage.retry_scheduled", payload=payload)
+                )
         if not state["stage_queue"]:
             state["goal_reached"] = True
         return state
