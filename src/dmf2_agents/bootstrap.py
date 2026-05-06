@@ -4,12 +4,12 @@ from pathlib import Path
 
 from .agents import AgentRegistry
 from .artifacts import ArtifactService
-from .config import get_settings
+from .config import build_provider_settings, get_settings
 from .events import EventBus
 from .memory import MemoryService
 from .orchestrator import SessionOrchestrator
 from .prompting import PromptBuilder
-from .providers import AzureOpenAIProvider, StubProvider
+from .providers import GatewayConfig, build_provider
 from .repository import Repository
 from .runner import AgentRunner
 from .skills import SkillRegistry
@@ -32,15 +32,7 @@ def build_app(project_root: Path | None = None) -> SessionOrchestrator:
     skills = SkillRegistry(root / "skills")
     permission = PermissionService({agent.name: set(agent.allowed_tools) for agent in agents.list()})
     tools = ToolRegistry(root=root, memory=memory, artifacts=artifacts, skills=skills, permission=permission)
-    if settings.model_backend == "azure_openai":
-        provider = AzureOpenAIProvider(
-            endpoint=settings.azure_openai_endpoint or "",
-            api_key=settings.azure_openai_api_key or "",
-            api_version=settings.azure_openai_api_version,
-            deployment=settings.azure_openai_deployment or settings.model_name,
-        )
-    else:
-        provider = StubProvider()
+    provider = build_provider(GatewayConfig.model_validate(build_provider_settings(settings)))
     runner = AgentRunner(memory=memory, artifacts=artifacts, tools=tools, prompt_builder=PromptBuilder(), provider=provider)
     return SessionOrchestrator(
         repository=repository,

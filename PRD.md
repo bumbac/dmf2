@@ -152,6 +152,7 @@ Implementation note for the live-model milestone:
 
 - The runner must remain responsible for tool execution, persistence, and permission enforcement
 - Provider adapters may use structured output and tool-calling features, but must return normalized decisions rather than execute tools directly
+- The model integration layer should be shaped like a swappable gateway client so model names, endpoints, and runtime parameters can change without changing orchestration code
 
 ## Open Questions
 

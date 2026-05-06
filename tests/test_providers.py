@@ -7,7 +7,7 @@ import pytest
 
 from dmf2_agents.agents import AgentRegistry
 from dmf2_agents.config import build_provider_settings, get_settings
-from dmf2_agents.providers import AgentDecision, AzureOpenAIProvider, StubProvider, ToolCallDecision
+from dmf2_agents.providers import AgentDecision, GatewayConfig, GatewayProvider, StubProvider, ToolCallDecision, build_provider
 from dmf2_agents.stages import StageRegistry
 from dmf2_agents.tools import ToolDefinition
 
@@ -38,10 +38,11 @@ def test_settings_enable_azure_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     assert settings.model_backend == "azure_openai"
     provider_settings = build_provider_settings(settings)
-    assert provider_settings["deployment"] == "gpt-deployment"
+    assert provider_settings["provider"] == "azure_openai"
+    assert provider_settings["model"] == "gpt-deployment"
 
 
-def test_azure_provider_parses_structured_response(monkeypatch: pytest.MonkeyPatch, project_root: Path) -> None:
+def test_gateway_provider_parses_structured_response(project_root: Path) -> None:
     class FakeMessage:
         content = json.dumps({"response": "done", "mark_stage_complete": True})
         tool_calls = [
@@ -64,20 +65,11 @@ def test_azure_provider_parses_structured_response(monkeypatch: pytest.MonkeyPat
     class FakeCompletion:
         choices = [FakeChoice()]
 
-    class FakeClient:
-        class chat:
-            class completions:
-                @staticmethod
-                def create(**kwargs):
-                    return FakeCompletion()
+    class FakeGatewayClient:
+        def create_response(self, *, prompt: str, tools: list[ToolDefinition]):
+            return FakeCompletion()
 
-    monkeypatch.setattr("dmf2_agents.providers.AzureOpenAI", lambda **kwargs: FakeClient())
-    provider = AzureOpenAIProvider(
-        endpoint="https://example.openai.azure.com",
-        api_key="key",
-        api_version="2024-08-01-preview",
-        deployment="gpt-deployment",
-    )
+    provider = GatewayProvider(FakeGatewayClient())
     agent = AgentRegistry().get("planner")
     stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
     assert agent is not None
@@ -94,3 +86,8 @@ def test_azure_provider_parses_structured_response(monkeypatch: pytest.MonkeyPat
     assert decision.tool_calls == [
         ToolCallDecision(tool_name="write_artifact", arguments={"kind": "note", "title": "t", "content": "c"})
     ]
+
+
+def test_build_provider_uses_stub_backend() -> None:
+    provider = build_provider(GatewayConfig(provider="stub", model="stub-model"))
+    assert isinstance(provider, StubProvider)

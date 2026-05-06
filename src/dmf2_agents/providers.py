@@ -25,6 +25,16 @@ class AgentDecision(BaseModel):
     mark_stage_complete: bool = False
 
 
+class GatewayConfig(BaseModel):
+    provider: str
+    model: str
+    endpoint: str | None = None
+    api_key: str | None = None
+    api_version: str | None = None
+    temperature: float = 0.1
+    max_tokens: int | None = None
+
+
 class ProviderClient(Protocol):
     def decide(
         self,
@@ -34,6 +44,10 @@ class ProviderClient(Protocol):
         prompt: str,
         tools: list[ToolDefinition],
     ) -> AgentDecision: ...
+
+
+class GatewayClient(Protocol):
+    def create_response(self, *, prompt: str, tools: list[ToolDefinition]) -> Any: ...
 
 
 class StubProvider:
@@ -79,21 +93,20 @@ class StubProvider:
         )
 
 
-class AzureOpenAIProvider:
-    def __init__(self, *, endpoint: str, api_key: str, api_version: str, deployment: str):
+class OpenAIGatewayClient:
+    def __init__(self, config: GatewayConfig):
         if AzureOpenAI is None:
             raise RuntimeError("openai package is required for Azure OpenAI support")
-        self.deployment = deployment
-        self.client = AzureOpenAI(azure_endpoint=endpoint, api_key=api_key, api_version=api_version)
+        self.config = config
+        if config.provider != "azure_openai":
+            raise ValueError(f"unsupported gateway provider: {config.provider}")
+        self.client = AzureOpenAI(
+            azure_endpoint=config.endpoint,
+            api_key=config.api_key,
+            api_version=config.api_version,
+        )
 
-    def decide(
-        self,
-        *,
-        agent: AgentDefinition,
-        stage: StageDefinition,
-        prompt: str,
-        tools: list[ToolDefinition],
-    ) -> AgentDecision:
+    def create_response(self, *, prompt: str, tools: list[ToolDefinition]) -> Any:
         tool_payload = [
             {
                 "type": "function",
@@ -109,8 +122,8 @@ class AzureOpenAIProvider:
             }
             for tool in tools
         ]
-        completion = self.client.chat.completions.create(
-            model=self.deployment,
+        return self.client.chat.completions.create(
+            model=self.config.model,
             messages=[
                 {
                     "role": "system",
@@ -122,6 +135,8 @@ class AzureOpenAIProvider:
                 {"role": "user", "content": prompt},
             ],
             tools=tool_payload or None,
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
             response_format={
                 "type": "json_schema",
                 "json_schema": {
@@ -139,6 +154,21 @@ class AzureOpenAIProvider:
                 },
             },
         )
+
+
+class GatewayProvider:
+    def __init__(self, client: GatewayClient):
+        self.client = client
+
+    def decide(
+        self,
+        *,
+        agent: AgentDefinition,
+        stage: StageDefinition,
+        prompt: str,
+        tools: list[ToolDefinition],
+    ) -> AgentDecision:
+        completion = self.client.create_response(prompt=prompt, tools=tools)
         choice = completion.choices[0].message
         content = choice.content or "{}"
         try:
@@ -157,3 +187,9 @@ class AzureOpenAIProvider:
             return AgentDecision.model_validate({**payload, "tool_calls": tool_calls})
         except ValidationError as exc:  # pragma: no cover
             raise ValueError(f"provider decision failed validation: {exc}") from exc
+
+
+def build_provider(config: GatewayConfig) -> ProviderClient:
+    if config.provider == "stub":
+        return StubProvider()
+    return GatewayProvider(OpenAIGatewayClient(config))

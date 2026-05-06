@@ -68,6 +68,7 @@ What to implement:
 
 - Add a provider layer in a new `src/dmf2_agents/providers.py` or provider package
 - Start with Azure OpenAI because the environment is already available
+- Shape the provider layer like an LLM gateway client so models, endpoints, and runtime parameters can be swapped without changing the runner
 - Keep the current boundaries intact: prompt building, tool execution, permissions, and persistence should remain outside the provider client
 - Define a narrow runtime contract for model output, for example an `AgentDecision` containing plain text, tool calls, artifacts, progress updates, and optional task delegation
 - Prefer Azure/OpenAI structured outputs and tool-calling over free-form parsing when the provider supports it; keep the stub backend as the default test path
