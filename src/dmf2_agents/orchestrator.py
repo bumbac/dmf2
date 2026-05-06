@@ -100,9 +100,6 @@ class SessionOrchestrator:
             state["halted"] = True
             return state
         outcome = self.runner.run(session_id=state["session_id"], stage=stage, agent=agent, user_input=state["user_input"])
-        self.memory.append_message(
-            MessageRecord(session_id=state["session_id"], role="assistant", agent_name=agent.name, content=outcome.response)
-        )
         self.events.publish(
             EventRecord(
                 session_id=state["session_id"],

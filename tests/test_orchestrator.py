@@ -11,6 +11,8 @@ def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
     assert session_id
     messages = app.repository.list_messages(session_id)
     assert any(item.role == "assistant" for item in messages)
+    assistant_messages = [item for item in messages if item.role == "assistant"]
+    assert len({(item.agent_name, item.content) for item in assistant_messages}) == len(assistant_messages)
     events = app.repository.list_events(session_id)
     event_types = [item.event_type for item in events]
     assert "session.started" in event_types

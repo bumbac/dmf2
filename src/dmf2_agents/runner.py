@@ -49,7 +49,7 @@ class AgentRunner:
             tools=available_tools,
         )
         self.memory.append_message(MessageRecord(session_id=session_id, role="assistant", agent_name=agent.name, content=decision.response))
-        ctx = ToolContext(session_id=session_id, stage_id=stage.id, agent_name=agent.name)
+        ctx = ToolContext(session_id=session_id, stage_id=stage.id, agent_name=agent.name, stage=stage)
         artifacts_written: list[dict[str, str]] = []
         progress_updates: list[str] = []
         tool_actions: list[dict[str, str]] = []

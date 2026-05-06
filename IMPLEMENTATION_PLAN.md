@@ -17,7 +17,7 @@ This implementation follows the OpenCode reference at a structural level, adapte
 
 ## Current Implementation Progress
 
-The current codebase is a functional scaffold, not a finished product.
+The current codebase is a functional scaffold with a working provider boundary, but it is not yet a finished product.
 
 Implemented:
 
@@ -32,12 +32,13 @@ Implemented:
 - Memory, artifact, and event services in `src/dmf2_agents/memory.py`, `src/dmf2_agents/artifacts.py`, and `src/dmf2_agents/events.py`
 - Prompt assembly from summary, plan, progress, artifacts, and skills in `src/dmf2_agents/prompting.py`
 - LangGraph stage loop in `src/dmf2_agents/orchestrator.py`
+- Provider abstraction with a deterministic stub backend and Azure OpenAI adapter in `src/dmf2_agents/providers.py`
 - Bootstrap and CLI entrypoint in `src/dmf2_agents/bootstrap.py` and `src/dmf2_agents/cli.py`
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
 Implemented but intentionally simplified:
 
-- The `AgentRunner` now routes decisions through a provider abstraction with a deterministic stub backend by default and an Azure OpenAI adapter when configured
+- The `AgentRunner` routes decisions through a provider abstraction with a deterministic stub backend by default and an Azure OpenAI adapter when configured, but the live path has only been validated through narrow adapter tests rather than a full end-to-end staged workflow
 - `run_task_agent` returns a structured stub result rather than spawning a true child session
 - Stage completion is driven by the runner directly, not by evaluating explicit completion conditions
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
@@ -45,7 +46,6 @@ Implemented but intentionally simplified:
 
 Not yet implemented:
 
-- Real model provider integration using the existing Azure OpenAI settings from `.env`
 - True child task sessions with separate lineage, summaries, and persisted session records
 - Stage completion evaluators based on artifact existence, validation checks, or task outputs
 - HTTP API for session creation, monitoring, and event streaming
@@ -55,30 +55,9 @@ Not yet implemented:
 
 ## Next Steps
 
-### 1. Replace deterministic agent execution with a real model-backed agent runner
+### 1. Implement true task sessions for subagents
 
-Status: in progress
-
-Why:
-
-- The current runner proves the orchestration shape, but not actual agent reasoning
-- The product goal requires agents that can decide when to use tools, load skills, update progress, and delegate work
-
-What to implement:
-
-- Add a provider layer in a new `src/dmf2_agents/providers.py` or provider package
-- Start with Azure OpenAI because the environment is already available
-- Shape the provider layer like an LLM gateway client so models, endpoints, and runtime parameters can be swapped without changing the runner
-- Keep the current boundaries intact: prompt building, tool execution, permissions, and persistence should remain outside the provider client
-- Define a narrow runtime contract for model output, for example an `AgentDecision` containing plain text, tool calls, artifacts, progress updates, and optional task delegation
-- Prefer Azure/OpenAI structured outputs and tool-calling over free-form parsing when the provider supports it; keep the stub backend as the default test path
-
-Definition of done:
-
-- `AgentRunner` can invoke a live model and map its output into controlled tool executions
-- Existing tests remain green and new runner tests cover tool and delegation decisions
-
-### 2. Implement true task sessions for subagents
+Status: next
 
 Why:
 
@@ -88,7 +67,8 @@ Why:
 What to implement:
 
 - Add task session creation linked to a parent session
-- Persist parent-child session lineage explicitly
+- Reuse the parent stage definition as the child session context rather than inventing a synthetic task stage
+- Persist parent-child session lineage explicitly through `parent_session_id`
 - Allow child sessions to have their own messages, summaries, progress, and artifacts
 - Return a structured `TaskResult` containing task id, summary, artifact ids, and recommended next action
 
@@ -98,7 +78,7 @@ Definition of done:
 - Child outputs are persisted and visible to the parent session
 - Tests validate lineage and independent state
 
-### 3. Add explicit stage completion evaluators
+### 2. Add explicit stage completion evaluators
 
 Why:
 
@@ -108,13 +88,33 @@ Why:
 What to implement:
 
 - Add a stage evaluator service that reads stage definitions and checks completion conditions
-- Support conditions such as artifact existence, validation artifact presence, progress flags, and task result presence
+- Start with artifact-based completion using the declared `output_artifacts` for each stage
+- Support later extension for validation artifacts, progress flags, and task result presence
 - Move stage completion decisions out of `AgentRunner`
 
 Definition of done:
 
 - `SessionOrchestrator` advances stages only when evaluator rules pass
 - Tests cover passing and failing stage transitions
+
+### 3. Prove the live model-backed runner end to end
+
+Why:
+
+- The provider boundary and Azure adapter exist, but the codebase has not yet proven a full staged workflow against a live model
+- The product goal still requires confidence that model decisions map cleanly into controlled tool execution
+
+What to implement:
+
+- Exercise the existing provider path against a real staged session
+- Tighten the runtime contract around tool calls, final response content, and completion signals
+- Keep the current boundaries intact: prompt building, tool execution, permissions, and persistence should remain outside the provider client
+- Preserve the stub backend as the default fast test path
+
+Definition of done:
+
+- A live model-backed session can complete at least one staged workflow
+- Existing tests remain green and additional coverage exists around provider decisions in runner and orchestration boundaries
 
 ### 4. Improve context management and summarization
 
@@ -171,19 +171,20 @@ Definition of done:
 
 ## Recommended Execution Order
 
-1. Real model-backed `AgentRunner`
-2. True task sessions and lineage
-3. Stage evaluators
+1. True task sessions and lineage
+2. Stage evaluators
+3. End-to-end live model validation
 4. Better summary and context compaction
 5. HTTP API and event streaming
 6. Permission hardening
 
-This order preserves momentum while keeping risk low. It validates the core agent loop first, then the subagent model, then reliability and external access.
+This order preserves momentum while keeping risk low. The provider boundary is already in place, so the next priority is to make delegation and completion reliable before expanding the external surface.
 
 ## Risks And Constraints
 
-- Real model integration can easily blur separation of concerns if tool logic leaks into provider code
 - Task sessions can become tangled with parent session state if lineage is not modeled explicitly
+- Reusing the parent stage definition for child task context is intentionally minimal, but it means task semantics stay coupled to the parent stage until a richer task model exists
+- Real model integration can still blur separation of concerns if tool logic leaks into provider code
 - Shell and filesystem tools become a real safety concern once live model execution is enabled
 - Prompt growth will become a practical issue quickly after enabling live model reasoning
 - Postgres schema is still minimal and may need migrations once stage runs and task lineage are introduced
@@ -195,6 +196,7 @@ Add tests for:
 - Real provider adapter behavior behind a small mocked boundary
 - Parent-child task session creation and persistence
 - Stage evaluator success and failure paths
+- End-to-end live-model workflow behavior once a safe integration test path exists
 - Summary compaction behavior on longer sessions
 - Path and command permission enforcement
 - API-level session lifecycle behavior

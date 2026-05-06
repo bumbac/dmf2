@@ -122,11 +122,10 @@ Partially implemented:
 - Task delegation exists only as a structured stub result
 - Summary generation exists but is simple and not model-backed
 - Stage completion exists but does not yet evaluate explicit completion conditions
-- Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and an Azure OpenAI adapter for live structured output and tool-calling
+- Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and an Azure OpenAI adapter for structured output and tool-calling
 
 Not yet implemented:
 
-- Real model provider integration
 - True child task sessions and lineage tables
 - HTTP API and event streaming
 - Rich permission policies for commands and filesystem paths
@@ -142,11 +141,16 @@ Not yet implemented:
 
 ## Acceptance Criteria For Next Milestone
 
-- A live model-backed agent runner can complete at least one full staged workflow
 - A parent session can spawn a real child task session and consume its result
 - Stage advancement depends on explicit evaluator logic rather than a hardcoded runner decision
+- A live model-backed agent runner can complete at least one full staged workflow
 - Session summaries remain bounded as session length grows
 - Progress and events are queryable through a thin service interface
+
+Implementation note for the next delegation milestone:
+
+- Child task sessions should reuse the parent stage definition for context and completion semantics in the first implementation rather than introducing a new task-stage model
+- Parent-child lineage should use the existing durable session model before adding dedicated lineage tables
 
 Implementation note for the live-model milestone:
 

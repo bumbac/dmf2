@@ -14,6 +14,7 @@ from dmf2_agents.repository import Repository
 from dmf2_agents.runner import AgentRunner
 from dmf2_agents.skills import SkillRegistry
 from dmf2_agents.storage import Database
+from dmf2_agents.tasks import TaskService
 from dmf2_agents.tools import PermissionService, ToolRegistry
 
 
@@ -23,6 +24,19 @@ class FakeProvider:
 
     def decide(self, **kwargs) -> AgentDecision:
         return self.decision
+
+
+class SequenceProvider:
+    def __init__(self, decisions: list[AgentDecision]):
+        self.decisions = decisions
+        self.index = 0
+
+    def decide(self, **kwargs) -> AgentDecision:
+        if self.index >= len(self.decisions):
+            return self.decisions[-1]
+        decision = self.decisions[self.index]
+        self.index += 1
+        return decision
 
 
 def build_runner(project_root: Path, decision: AgentDecision) -> tuple[AgentRunner, Repository]:
@@ -45,6 +59,7 @@ def build_runner(project_root: Path, decision: AgentDecision) -> tuple[AgentRunn
         prompt_builder=PromptBuilder(),
         provider=FakeProvider(decision),
     )
+    tools.task_executor = TaskService(repository=repo, memory=memory, artifacts=artifacts, agents=AgentRegistry(), runner=runner)
     return runner, repo
 
 
@@ -111,3 +126,76 @@ def test_runner_denied_tool_call_raises(project_root: Path) -> None:
             ),
             user_input="hello",
         )
+
+
+def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> None:
+    database = Database("sqlite+pysqlite:///:memory:")
+    database.create_all()
+    repo = Repository(database)
+    memory = MemoryService(repo)
+    artifacts = ArtifactService(repo)
+    tools = ToolRegistry(
+        root=project_root,
+        memory=memory,
+        artifacts=artifacts,
+        skills=SkillRegistry(project_root / "skills"),
+        permission=PermissionService({agent.name: set(agent.allowed_tools) for agent in AgentRegistry().list()}),
+    )
+    runner = AgentRunner(
+        memory=memory,
+        artifacts=artifacts,
+        tools=tools,
+        prompt_builder=PromptBuilder(),
+        provider=SequenceProvider(
+            [
+                AgentDecision(
+                    response="delegating",
+                    mark_stage_complete=True,
+                    tool_calls=[
+                        ToolCallDecision(
+                            tool_name="run_task_agent",
+                            arguments={"subagent_name": "reviewer", "prompt": "Review the current stage artifacts."},
+                        ),
+                        ToolCallDecision(
+                            tool_name="write_artifact",
+                            arguments={"kind": "review_report", "title": "Review", "content": "looks good"},
+                        ),
+                    ],
+                ),
+                AgentDecision(
+                    response="review complete",
+                    mark_stage_complete=True,
+                    tool_calls=[
+                        ToolCallDecision(
+                            tool_name="write_artifact",
+                            arguments={"kind": "review_report", "title": "Child Review", "content": "approved"},
+                        )
+                    ],
+                ),
+            ]
+        ),
+    )
+    tools.task_executor = TaskService(repository=repo, memory=memory, artifacts=artifacts, agents=AgentRegistry(), runner=runner)
+    stage = StageDefinition(id="validate", name="Validate", goal="Validate outputs", assigned_agents=["reviewer"])
+    agent = AgentRegistry().get("planner")
+    assert agent is not None
+    outcome = runner.run(session_id="parent-session", stage=stage, agent=agent, user_input="start validation")
+    children = repo.list_child_sessions("parent-session")
+    assert len(children) == 1
+    child = children[0]
+    child_messages = repo.list_messages(child.id)
+    assert child_messages[0].role == "user"
+    assert "Review the current stage artifacts." in child_messages[0].content
+    assert child_messages[-1].role == "assistant"
+    assert child.status == "completed"
+    assert child.title == "Task: reviewer for validate"
+    child_summary = repo.latest_summary(child.id)
+    assert child_summary is not None
+    assert "review complete" in child_summary.content
+    child_artifacts = repo.list_artifacts(child.id)
+    assert len(child_artifacts) == 1
+    assert child_artifacts[0].kind == "review_report"
+    parent_artifacts = repo.list_artifacts("parent-session")
+    assert len(parent_artifacts) == 1
+    assert parent_artifacts[0].title == "Review"
+    assert "review complete" in outcome.response

@@ -7,15 +7,28 @@ from typing import Any
 from pydantic import BaseModel
 
 from .artifacts import ArtifactService
-from .domain import ArtifactRecord, ProgressRecord, TaskResult
+from .domain import ArtifactRecord, ProgressRecord, StageDefinition, TaskResult
 from .memory import MemoryService
 from .skills import SkillRegistry
+
+
+class TaskExecutor:
+    def run_subagent(
+        self,
+        *,
+        parent_session_id: str,
+        stage: StageDefinition,
+        subagent_name: str,
+        prompt: str,
+    ) -> TaskResult:
+        raise NotImplementedError
 
 
 class ToolContext(BaseModel):
     session_id: str
     stage_id: str | None = None
     agent_name: str
+    stage: StageDefinition | None = None
 
 
 class ToolDefinition(BaseModel):
@@ -41,12 +54,14 @@ class ToolRegistry:
         artifacts: ArtifactService,
         skills: SkillRegistry,
         permission: PermissionService,
+        task_executor: TaskExecutor | None = None,
     ):
         self.root = root
         self.memory = memory
         self.artifacts = artifacts
         self.skills = skills
         self.permission = permission
+        self.task_executor = task_executor
 
     def discover_for_agent(self, agent_name: str) -> list[ToolDefinition]:
         return [ToolDefinition(name=name, description=desc) for name, desc in self._descriptions().items() if name in self.permission.agent_tools.get(agent_name, set())]
@@ -113,11 +128,15 @@ class ToolRegistry:
         return skill.content
 
     def tool_run_task_agent(self, ctx: ToolContext, subagent_name: str, prompt: str) -> TaskResult:
-        return TaskResult(
-            task_id=f"task-{ctx.session_id}-{subagent_name}",
-            status="completed",
-            summary=f"Subagent {subagent_name} reviewed task: {prompt}",
-            recommended_next_action="Continue current stage with the task result in context.",
+        if self.task_executor is None:
+            raise RuntimeError("task executor is not configured")
+        if ctx.stage is None:
+            raise ValueError("task execution requires the current stage definition")
+        return self.task_executor.run_subagent(
+            parent_session_id=ctx.session_id,
+            stage=ctx.stage,
+            subagent_name=subagent_name,
+            prompt=prompt,
         )
 
     def tool_mark_stage_complete(self, ctx: ToolContext, reason: str) -> dict[str, str]:

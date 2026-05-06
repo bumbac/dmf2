@@ -22,6 +22,27 @@ class Repository:
                 return
             row.status = status
 
+    def get_session(self, session_id: str) -> SessionRecord | None:
+        with self.database.session() as db:
+            row = db.get(SessionTable, session_id)
+            if row is None:
+                return None
+            return SessionRecord.model_validate(row, from_attributes=True)
+
+    def list_sessions(self) -> list[SessionRecord]:
+        with self.database.session() as db:
+            rows = db.execute(select(SessionTable).order_by(SessionTable.created_at.asc())).scalars()
+            return [SessionRecord.model_validate(row, from_attributes=True) for row in rows]
+
+    def list_child_sessions(self, parent_session_id: str) -> list[SessionRecord]:
+        with self.database.session() as db:
+            rows = db.execute(
+                select(SessionTable)
+                .where(SessionTable.parent_session_id == parent_session_id)
+                .order_by(SessionTable.created_at.asc())
+            ).scalars()
+            return [SessionRecord.model_validate(row, from_attributes=True) for row in rows]
+
     def add_message(self, record: MessageRecord) -> MessageRecord:
         with self.database.session() as db:
             db.add(MessageTable(**record.model_dump()))

@@ -15,6 +15,7 @@ from .runner import AgentRunner
 from .skills import SkillRegistry
 from .stages import StageRegistry
 from .storage import Database
+from .tasks import TaskService
 from .tools import PermissionService, ToolRegistry
 
 
@@ -34,6 +35,7 @@ def build_app(project_root: Path | None = None) -> SessionOrchestrator:
     tools = ToolRegistry(root=root, memory=memory, artifacts=artifacts, skills=skills, permission=permission)
     provider = build_provider(GatewayConfig.model_validate(build_provider_settings(settings)))
     runner = AgentRunner(memory=memory, artifacts=artifacts, tools=tools, prompt_builder=PromptBuilder(), provider=provider)
+    tools.task_executor = TaskService(repository=repository, memory=memory, artifacts=artifacts, agents=agents, runner=runner)
     return SessionOrchestrator(
         repository=repository,
         memory=memory,
