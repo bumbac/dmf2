@@ -61,6 +61,10 @@ class StageEvaluator:
         self.client = client
 
     def evaluate(self, *, session_id: str, stage: StageDefinition) -> StageEvaluationResult:
+        if stage.evaluation_mode == "human_confirmation" and hasattr(self.client, "auto_approve"):
+            return HumanConfirmationStageEvaluationClient(auto_approve=self.client.auto_approve).evaluate(
+                StageEvaluationContext(stage=stage, messages=[])
+            )
         stage_messages = [
             ProviderMessage(role=message.role, content=message.content)
             for message in self.repository.list_messages(session_id)
@@ -76,6 +80,9 @@ class StageEvaluator:
             for item in self.artifacts.list_artifacts(session_id)
             if item.stage_id == stage.id
         ]
-        return self.client.evaluate(
-            StageEvaluationContext(stage=stage, messages=[*stage_messages, *stage_progress, *stage_artifacts])
-        )
+        context = StageEvaluationContext(stage=stage, messages=[*stage_messages, *stage_progress, *stage_artifacts])
+        if stage.evaluation_mode == "provider":
+            provider = getattr(self.client, "provider", None)
+            if provider is not None:
+                return ProviderStageEvaluationClient(provider).evaluate(context)
+        return self.client.evaluate(context)

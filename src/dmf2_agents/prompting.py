@@ -26,6 +26,10 @@ class PromptBuilder:
                 "If the stage goal references concrete file paths, inspect those files with available read-only tools before deciding. "
                 "If you can write files and the stage requires deliverables, prefer creating inspectable checked output files while also persisting artifacts that summarize what you produced."
             ),
+            (
+                "When using write_file, choose explicit project-relative output paths and then record those paths in a write_artifact or update_progress entry so later stages can inspect them. "
+                "Do not mark the stage complete until the expected files or review evidence exist."
+            ),
             "",
             "Session summary:",
             summary.content if summary else "No summary yet.",

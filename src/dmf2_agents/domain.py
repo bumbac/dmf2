@@ -37,6 +37,7 @@ class StageDefinition(BaseModel):
     completion_conditions: list[str] = Field(default_factory=list)
     max_loops: int = 3
     output_artifacts: list[str] = Field(default_factory=list)
+    evaluation_mode: Literal["human_confirmation", "provider"] | None = None
 
 
 class SessionRecord(BaseModel):

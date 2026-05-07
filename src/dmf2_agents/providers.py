@@ -157,21 +157,7 @@ class OpenAIGatewayClient:
         )
 
     def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any:
-        tool_payload = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": True,
-                    },
-                },
-            }
-            for tool in tools
-        ]
+        tool_payload = [self._tool_payload(tool) for tool in tools]
         request: dict[str, Any] = {
             "model": self.config.model,
             "messages": [
@@ -269,6 +255,94 @@ class OpenAIGatewayClient:
         if message.tool_call_id:
             payload["tool_call_id"] = message.tool_call_id
         return payload
+
+    def _tool_payload(self, tool: ToolDefinition) -> dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": self._tool_parameters(tool.name),
+            },
+        }
+
+    def _tool_parameters(self, tool_name: str) -> dict[str, Any]:
+        if tool_name == "read_file":
+            return {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Project-relative path to a text file to read."}},
+                "required": ["path"],
+                "additionalProperties": False,
+            }
+        if tool_name == "write_file":
+            return {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Project-relative output path to write."},
+                    "content": {"type": "string", "description": "Full file content to write."},
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            }
+        if tool_name == "run_command":
+            return {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Command and arguments as a string array.",
+                    }
+                },
+                "required": ["command"],
+                "additionalProperties": False,
+            }
+        if tool_name == "write_artifact":
+            return {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string"},
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["kind", "title", "content"],
+                "additionalProperties": True,
+            }
+        if tool_name == "update_progress":
+            return {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string"},
+                    "status": {"type": "string"},
+                },
+                "required": ["message"],
+                "additionalProperties": False,
+            }
+        if tool_name == "load_skill":
+            return {
+                "type": "object",
+                "properties": {"skill_name": {"type": "string"}},
+                "required": ["skill_name"],
+                "additionalProperties": False,
+            }
+        if tool_name == "run_task_agent":
+            return {
+                "type": "object",
+                "properties": {
+                    "subagent_name": {"type": "string"},
+                    "prompt": {"type": "string"},
+                },
+                "required": ["subagent_name", "prompt"],
+                "additionalProperties": False,
+            }
+        if tool_name == "mark_stage_complete":
+            return {
+                "type": "object",
+                "properties": {"reason": {"type": "string"}},
+                "required": ["reason"],
+                "additionalProperties": False,
+            }
+        return {"type": "object", "properties": {}, "additionalProperties": True}
 
 
 class GatewayProvider:
