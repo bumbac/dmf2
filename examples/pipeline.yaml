@@ -1,29 +1,21 @@
 stages:
   - id: discover
     name: Discover
-    goal: Understand the request and produce an initial discovery artifact.
+    goal: Understand the request and capture the important problem details.
     assigned_agents: [planner]
-    completion_conditions: [discovery_artifact_exists]
     max_loops: 2
-    output_artifacts: [discover_note]
   - id: design
     name: Design
     goal: Produce a plan for execution.
     assigned_agents: [planner]
-    completion_conditions: [design_artifact_exists]
     max_loops: 2
-    output_artifacts: [design_note]
   - id: execute
     name: Execute
     goal: Produce deliverable artifacts.
     assigned_agents: [builder]
-    completion_conditions: [execution_artifact_exists]
     max_loops: 2
-    output_artifacts: [execute_note]
   - id: validate
     name: Validate
     goal: Validate outputs and record the final status.
     assigned_agents: [reviewer]
-    completion_conditions: [validation_artifact_exists]
     max_loops: 2
-    output_artifacts: [validate_note]

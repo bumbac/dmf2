@@ -23,6 +23,8 @@ class Settings(BaseModel):
     azure_openai_deployment: str | None = Field(default=None)
     skills_dir: Path = Field(default_factory=lambda: Path.cwd() / "skills")
     default_stage_file: Path = Field(default_factory=lambda: Path.cwd() / "examples" / "pipeline.yaml")
+    stage_evaluation_mode: str = Field(default="human_confirmation")
+    human_confirmation_auto_approve: bool = Field(default=True)
 
 
 @lru_cache(maxsize=1)
@@ -56,6 +58,8 @@ def get_settings() -> Settings:
         azure_openai_deployment=os.getenv("AZURE_OPENAI_DEPLOYMENT"),
         skills_dir=root / "skills",
         default_stage_file=root / "examples" / "pipeline.yaml",
+        stage_evaluation_mode=os.getenv("STAGE_EVALUATION_MODE", "human_confirmation"),
+        human_confirmation_auto_approve=os.getenv("HUMAN_CONFIRMATION_AUTO_APPROVE", "true").lower() in {"1", "true", "yes", "on"},
     )
 
 

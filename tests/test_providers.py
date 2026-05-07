@@ -130,6 +130,48 @@ def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> 
         )
 
 
+def test_stub_provider_can_evaluate_stage(project_root: Path) -> None:
+    stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
+    assert stage is not None
+    decision = StubProvider().evaluate_stage(
+        stage=stage,
+        messages=[ProviderMessage(role="assistant", content="Completed analysis for the stage goal")],
+    )
+    assert decision.passed is True
+    assert "persisted evidence" in decision.reasoning
+
+
+def test_gateway_provider_parses_stage_evaluation_response(project_root: Path) -> None:
+    class FakeMessage:
+        content = json.dumps({"passed": True, "reasoning": "The stage goal is satisfied."})
+        tool_calls = []
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletion:
+        choices = [FakeChoice()]
+
+    class FakeGatewayClient:
+        def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
+            raise AssertionError("agent response path should not be used for stage evaluation")
+
+        def create_stage_evaluation_response(self, *, stage, messages: list[ProviderMessage]):
+            return FakeCompletion()
+
+    provider = GatewayProvider(FakeGatewayClient())
+    stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
+    assert stage is not None
+
+    decision = provider.evaluate_stage(
+        stage=stage,
+        messages=[ProviderMessage(role="assistant", content="Persisted context")],
+    )
+
+    assert decision.passed is True
+    assert decision.reasoning == "The stage goal is satisfied."
+
+
 def test_build_provider_uses_stub_backend() -> None:
     provider = build_provider(GatewayConfig(provider="stub", model="stub-model"))
     assert isinstance(provider, StubProvider)

@@ -47,6 +47,13 @@ class SessionOrchestrator:
         self.evaluator = evaluator
         self.graph = self._build_graph()
 
+    def _build_plan(self, user_input: str) -> str:
+        stages = "\n".join(
+            f"- {index}. {stage.name}: {stage.goal}"
+            for index, stage in enumerate(self.stages.list(), start=1)
+        )
+        return f"Request:\n{user_input}\n\nWorkflow Plan:\n{stages}"
+
     def _build_graph(self):
         graph = StateGraph(GraphState)
         graph.add_node("choose_stage", self._choose_stage)
@@ -68,7 +75,7 @@ class SessionOrchestrator:
     def run(self, user_input: str) -> str:
         session = self.repository.create_session(SessionRecord(title=user_input[:80] or "session"))
         self.memory.append_message(MessageRecord(session_id=session.id, role="user", content=user_input))
-        self.memory.set_plan(session.id, f"Plan:\n- Discover request\n- Produce stage artifacts\n- Validate completion\n\nRequest: {user_input}")
+        self.memory.set_plan(session.id, self._build_plan(user_input))
         self.events.publish(EventRecord(session_id=session.id, event_type="session.started", payload={"title": session.title}))
         initial_state: GraphState = {
             "session_id": session.id,
@@ -136,7 +143,8 @@ class SessionOrchestrator:
                 "stage_id": stage.id,
                 "attempt": attempt,
                 "max_loops": stage.max_loops,
-                "missing_artifacts": evaluation.missing_artifacts,
+                "evaluation_reason": evaluation.reasoning,
+                "evaluation_source": evaluation.source,
             }
             if attempt >= stage.max_loops:
                 state["halted"] = True

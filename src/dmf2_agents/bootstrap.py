@@ -5,7 +5,7 @@ from pathlib import Path
 from .agents import AgentRegistry
 from .artifacts import ArtifactService
 from .config import build_provider_settings, get_settings
-from .evaluators import StageEvaluator
+from .evaluators import HumanConfirmationStageEvaluationClient, ProviderStageEvaluationClient, StageEvaluator
 from .events import EventBus
 from .memory import MemoryService
 from .orchestrator import SessionOrchestrator
@@ -20,7 +20,7 @@ from .tasks import TaskService
 from .tools import PermissionService, ToolRegistry
 
 
-def build_app(project_root: Path | None = None) -> SessionOrchestrator:
+def build_app(project_root: Path | None = None, workflow_path: Path | None = None) -> SessionOrchestrator:
     settings = get_settings()
     root = project_root or settings.project_root
     database = Database(settings.database_url)
@@ -28,14 +28,17 @@ def build_app(project_root: Path | None = None) -> SessionOrchestrator:
     repository = Repository(database)
     memory = MemoryService(repository)
     artifacts = ArtifactService(repository)
-    evaluator = StageEvaluator(artifacts)
     events = EventBus(repository)
-    stages = StageRegistry(root / "examples" / "pipeline.yaml")
+    stages = StageRegistry(workflow_path or settings.default_stage_file)
     agents = AgentRegistry()
     skills = SkillRegistry(root / "skills")
     permission = PermissionService({agent.name: set(agent.allowed_tools) for agent in agents.list()})
     tools = ToolRegistry(root=root, memory=memory, artifacts=artifacts, skills=skills, permission=permission)
     provider = build_provider(GatewayConfig.model_validate(build_provider_settings(settings)))
+    evaluation_client = HumanConfirmationStageEvaluationClient(auto_approve=settings.human_confirmation_auto_approve)
+    if settings.stage_evaluation_mode == "provider":
+        evaluation_client = ProviderStageEvaluationClient(provider)
+    evaluator = StageEvaluator(repository=repository, memory=memory, artifacts=artifacts, client=evaluation_client)
     runner = AgentRunner(memory=memory, artifacts=artifacts, tools=tools, prompt_builder=PromptBuilder(), provider=provider)
     tools.task_executor = TaskService(repository=repository, memory=memory, artifacts=artifacts, agents=agents, runner=runner)
     return SessionOrchestrator(

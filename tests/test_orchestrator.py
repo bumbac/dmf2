@@ -19,65 +19,47 @@ class SequenceProvider(ProviderClient):
         return decision
 
 
+class SequenceEvaluationClient:
+    def __init__(self, results: list[object]):
+        self.results = results
+        self.index = 0
+
+    def evaluate(self, context):
+        if self.index >= len(self.results):
+            return self.results[-1]
+        result = self.results[self.index]
+        self.index += 1
+        return result
+
+
 def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
     app = build_app(project_root=project_root)
     session_id = app.run("Produce a staged implementation outline")
     assert session_id
+    plan = app.repository.latest_plan(session_id)
     messages = app.repository.list_messages(session_id)
     assert any(item.role == "assistant" for item in messages)
     assert any(item.role == "tool" for item in messages)
     events = app.repository.list_events(session_id)
     event_types = [item.event_type for item in events]
+    assert plan is not None
+    assert "Workflow Plan:" in plan.content
+    assert "1. Discover: Understand the request and capture the important problem details." in plan.content
     assert "session.started" in event_types
     assert "stage.completed" in event_types
     assert "session.finished" in event_types
 
 
-def test_orchestrator_retries_stage_until_required_artifact_exists(project_root: Path) -> None:
+def test_orchestrator_retries_stage_until_provider_evaluation_passes(project_root: Path) -> None:
     app = build_app(project_root=project_root)
-    app.runner.provider = SequenceProvider(
+    app.runner.provider = SequenceProvider([AgentDecision(response="first attempt", tool_calls=[]), AgentDecision(response="second attempt", tool_calls=[])])
+    app.evaluator.client = SequenceEvaluationClient(
         [
-            AgentDecision(response="first attempt", tool_calls=[]),
-            AgentDecision(
-                response="second attempt",
-                tool_calls=[
-                    ToolCallDecision(
-                        tool_name="write_artifact",
-                        arguments={"kind": "discover_note", "title": "Discover", "content": "artifact body"},
-                    )
-                ],
-            ),
-            AgentDecision(response="discover finalized", mark_stage_complete=True, tool_calls=[]),
-            AgentDecision(
-                response="design",
-                tool_calls=[
-                    ToolCallDecision(
-                        tool_name="write_artifact",
-                        arguments={"kind": "design_note", "title": "Design", "content": "artifact body"},
-                    )
-                ],
-            ),
-            AgentDecision(response="design finalized", mark_stage_complete=True, tool_calls=[]),
-            AgentDecision(
-                response="execute",
-                tool_calls=[
-                    ToolCallDecision(
-                        tool_name="write_artifact",
-                        arguments={"kind": "execute_note", "title": "Execute", "content": "artifact body"},
-                    )
-                ],
-            ),
-            AgentDecision(response="execute finalized", mark_stage_complete=True, tool_calls=[]),
-            AgentDecision(
-                response="validate",
-                tool_calls=[
-                    ToolCallDecision(
-                        tool_name="write_artifact",
-                        arguments={"kind": "validate_note", "title": "Validate", "content": "artifact body"},
-                    )
-                ],
-            ),
-            AgentDecision(response="validate finalized", mark_stage_complete=True, tool_calls=[]),
+            type("EvaluationResult", (), {"passed": False, "reasoning": "Need more evidence", "source": "provider"})(),
+            type("EvaluationResult", (), {"passed": True, "reasoning": "Goal satisfied", "source": "provider"})(),
+            type("EvaluationResult", (), {"passed": True, "reasoning": "Goal satisfied", "source": "provider"})(),
+            type("EvaluationResult", (), {"passed": True, "reasoning": "Goal satisfied", "source": "provider"})(),
+            type("EvaluationResult", (), {"passed": True, "reasoning": "Goal satisfied", "source": "provider"})(),
         ]
     )
 
@@ -102,6 +84,12 @@ def test_orchestrator_halts_when_stage_exceeds_max_loops(project_root: Path) -> 
             AgentDecision(response="second attempt", tool_calls=[]),
         ]
     )
+    app.evaluator.client = SequenceEvaluationClient(
+        [
+            type("EvaluationResult", (), {"passed": False, "reasoning": "Goal not yet satisfied", "source": "provider"})(),
+            type("EvaluationResult", (), {"passed": False, "reasoning": "Goal not yet satisfied", "source": "provider"})(),
+        ]
+    )
 
     session_id = app.run("Produce a staged implementation outline")
 
@@ -117,4 +105,5 @@ def test_orchestrator_halts_when_stage_exceeds_max_loops(project_root: Path) -> 
     assert len(halted) == 1
     assert halted[0].payload["stage_id"] == "discover"
     assert halted[0].payload["attempt"] == 2
+    assert halted[0].payload["evaluation_reason"] == "Goal not yet satisfied"
     assert set(entered) == {"discover"}

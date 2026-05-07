@@ -25,6 +25,11 @@ class AgentDecision(BaseModel):
     mark_stage_complete: bool = False
 
 
+class StageEvaluationDecision(BaseModel):
+    passed: bool
+    reasoning: str
+
+
 class ProviderMessage(BaseModel):
     role: str
     content: str
@@ -51,8 +56,19 @@ class ProviderClient(Protocol):
     ) -> AgentDecision: ...
 
 
+class StageEvaluationProvider(Protocol):
+    def evaluate_stage(
+        self,
+        *,
+        stage: StageDefinition,
+        messages: list[ProviderMessage],
+    ) -> StageEvaluationDecision: ...
+
+
 class GatewayClient(Protocol):
     def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any: ...
+
+    def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any: ...
 
 
 class StubProvider:
@@ -96,6 +112,23 @@ class StubProvider:
             response=f"Agent {agent.name} advanced stage {stage.id}.",
             tool_calls=tool_calls,
             mark_stage_complete=True,
+        )
+
+    def evaluate_stage(
+        self,
+        *,
+        stage: StageDefinition,
+        messages: list[ProviderMessage],
+    ) -> StageEvaluationDecision:
+        has_evidence = any(message.content.strip() for message in messages)
+        if has_evidence:
+            return StageEvaluationDecision(
+                passed=True,
+                reasoning=f"Stub evaluator found persisted evidence for stage goal '{stage.goal}'.",
+            )
+        return StageEvaluationDecision(
+            passed=False,
+            reasoning=f"Stub evaluator found no persisted evidence for stage goal '{stage.goal}'.",
         )
 
 
@@ -161,6 +194,46 @@ class OpenAIGatewayClient:
             },
         )
 
+    def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any:
+        return self.client.chat.completions.create(
+            model=self.config.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a stage evaluator for a controlled workflow system. Determine whether the stated stage goal has been satisfied using only the persisted context you receive. "
+                        "Artifacts may be supporting evidence but must not be required. Return strict JSON with fields 'passed' and 'reasoning'."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Evaluate this stage.\nStage id: {stage.id}\nStage name: {stage.name}\nStage goal: {stage.goal}\n"
+                        "Judge whether the goal is satisfied based on the provided persisted context."
+                    ),
+                },
+                *[message.model_dump() for message in messages],
+            ],
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_tokens,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "stage_evaluation",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "passed": {"type": "boolean"},
+                            "reasoning": {"type": "string"},
+                        },
+                        "required": ["passed", "reasoning"],
+                        "additionalProperties": False,
+                    },
+                    "strict": True,
+                },
+            },
+        )
+
 
 class GatewayProvider:
     def __init__(self, client: GatewayClient):
@@ -193,6 +266,24 @@ class GatewayProvider:
             return AgentDecision.model_validate({**payload, "tool_calls": tool_calls})
         except ValidationError as exc:  # pragma: no cover
             raise ValueError(f"provider decision failed validation: {exc}") from exc
+
+    def evaluate_stage(
+        self,
+        *,
+        stage: StageDefinition,
+        messages: list[ProviderMessage],
+    ) -> StageEvaluationDecision:
+        completion = self.client.create_stage_evaluation_response(stage=stage, messages=messages)
+        choice = completion.choices[0].message
+        content = choice.content or "{}"
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError as exc:  # pragma: no cover
+            raise ValueError(f"provider returned invalid JSON: {content}") from exc
+        try:
+            return StageEvaluationDecision.model_validate(payload)
+        except ValidationError as exc:  # pragma: no cover
+            raise ValueError(f"provider stage evaluation failed validation: {exc}") from exc
 
 
 def build_provider(config: GatewayConfig) -> ProviderClient:
