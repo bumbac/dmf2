@@ -6,9 +6,14 @@ dmf2-agents
 
 ## Product Summary
 
-dmf2-agents is a controlled, engineering-first multi-agent orchestration system built in Python around LangGraph. It is not a general-purpose coding assistant. Its purpose is to execute configurable sequences of stages with explicit goals, scoped agents, reusable skills, durable memory, and observable progress.
+dmf2-agents is a controlled, engineering-first multi-agent orchestration system built in Python around LangGraph. It is not a general-purpose coding assistant. Its purpose is to execute configurable workflow definitions composed of explicit stages with stage-specific goals, scoped agents, reusable skills, durable memory, and observable progress.
 
-The system accepts a user text message as the only interactive input. From that input, it creates or resumes a session, builds a plan, routes work through configured stages, tracks progress, writes artifacts, and optionally delegates bounded work to subagents.
+The system accepts:
+
+- a workflow configuration file that defines the ordered stages and their goals
+- a user text message that provides request-specific context for the run
+
+From that input, it creates or resumes a session, derives the initial plan from the configured workflow, routes work through the configured stages, tracks progress, writes optional artifacts, and optionally delegates bounded work to subagents.
 
 ## Problem Statement
 
@@ -21,7 +26,7 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 
 ## Goals
 
-- Allow operators to configure a sequence of stages with stage-specific goals
+- Allow operators to configure a workflow file with ordered stages and stage-specific goals
 - Assign specific agents to stages with explicit tool permissions
 - Maintain usable context over long-running sessions through summaries, plans, progress, and artifacts
 - Support subagent task execution with independent state and shared outcomes
@@ -44,14 +49,15 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 
 ## Core User Experience
 
-1. User submits a text request
-2. System creates a session and initial plan
-3. System runs configured stages in order
-4. Each stage invokes an assigned agent with only its allowed tools and skills
-5. Agents write artifacts and progress updates as they work
-6. Stages advance only when completion conditions are satisfied
-7. Subagents can be called as independent tasks when needed
-8. Session ends with a clear set of artifacts, summaries, and progress history
+1. Operator selects a workflow configuration file
+2. User submits a text request
+3. System creates a session and derives the initial plan from the configured workflow
+4. System runs configured stages in order
+5. Each stage invokes an assigned agent with only its allowed tools and skills
+6. Agents write progress updates and optional artifacts as they work
+7. Stages advance only when the evaluator determines the stage goal has been met
+8. Subagents can be called as independent tasks when needed
+9. Session ends with a clear set of summaries, progress history, optional artifacts, and stage outcomes
 
 ## Functional Requirements
 
@@ -63,8 +69,15 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 
 ### Stage Orchestration
 
-- The system must load a configurable ordered list of stages
-- Each stage must have an id, name, goal, assigned agents, and completion conditions
+- The system must load a configurable ordered workflow definition from a configuration file
+- Each stage must have an id, name, goal, and assigned agents
+- The workflow configuration must be the primary source for stage ordering and initial plan structure
+- Each stage may include descriptive completion guidance, but stage completion must be determined by evaluator logic against the stage goal
+- Stage completion must be evaluated based on whether the stage goal has been met
+- The evaluator must use persisted context including chat history, progress, and relevant outputs
+- The evaluator should use an LLM-based judgment step behind a bounded provider interface
+- Stage completion must not depend solely on artifact existence
+- Required output artifact declarations must not be necessary for stage completion
 - The system must route across stages using LangGraph
 - The system must halt or fail cleanly when a stage cannot be executed
 
@@ -72,6 +85,8 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 
 - Agents must be configurable and addressable by name
 - Each agent must have a system prompt, mode, allowed tools, allowed skills, and iteration limits
+- The planner agent must be allowed to inspect files and run shell commands for read-only analysis
+- The planner agent must not be allowed to write files or otherwise modify code
 - Agents must not be able to use tools outside their permissions
 - Agents must be able to request subagent work through a task mechanism
 
@@ -98,6 +113,7 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 ### Context Management
 
 - The system must maintain chat history, a session summary, a current plan, progress entries, and artifacts
+- The initial session plan must be derived from the configured workflow definition rather than a fixed generic template
 - Prompt assembly must distinguish those context types clearly
 - The system should compact or summarize long-running history rather than relying on full transcripts only
 
@@ -125,7 +141,7 @@ Implemented now:
 - Artifact, progress, and event persistence
 - CLI entrypoint for running a session
 - Child task sessions with parent-child linkage using the durable session model
-- Explicit stage evaluator logic based on persisted artifacts scoped by `stage_id` and artifact kind
+- Explicit stage evaluator service wired into orchestration
 - Stage loop accounting and halting behavior based on `max_loops`, including retry and halt events
 - Tests for the current scaffold
 - The runner now supports iterative provider turns with persisted tool-result messages between decisions
@@ -135,7 +151,9 @@ Partially implemented:
 - Summary generation exists but is simple and not model-backed
 - Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and an Azure OpenAI adapter for structured output and tool-calling
 - Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
-- Stage completion currently starts with artifact-based evaluation from `output_artifacts`; `completion_conditions` remain descriptive and are not yet parsed as a richer policy format
+- Stage completion currently uses a simple persisted-signal evaluator and does not yet judge whether the configured stage goal has actually been met
+- The initial session plan is currently generic and not yet derived from the workflow configuration
+- The pipeline path is currently hardcoded in bootstrap rather than selected from configuration at runtime
 - A CLI session can be run end to end against the sample SQL migration prompt, but the default stub backend still produces generic scaffold artifacts rather than Oracle migration deliverables
 
 Not yet implemented:
@@ -143,7 +161,11 @@ Not yet implemented:
 - HTTP API and event streaming
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
-- Richer stage evaluator logic for validation checks, task-result presence, and parsed completion-condition policies
+- Workflow-selected pipeline loading at runtime instead of a hardcoded default path
+- Initial plan generation derived from the workflow configuration
+- LLM-based stage evaluation against the stage goal using persisted session context
+- Removal of output artifact requirements as the primary completion mechanism
+- Planner read-only analysis permissions for files and shell commands
 - A deterministic file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
 - Prompt and stage definitions specialized enough for the SQL-to-Oracle sample to produce useful deliverables instead of generic notes
 - Output file conventions and validation rules for end-to-end example runs
@@ -171,14 +193,17 @@ Implementation note for the completed delegation milestone:
 
 Implementation note for the next orchestration milestone:
 
-- The first stage evaluator should use concrete persisted signals, starting with required artifacts declared in `output_artifacts`, before introducing a richer completion-condition DSL
+- The workflow configuration file should define stages and goals and should be the source of stage ordering and initial plan structure
+- The evaluator should determine stage completion by assessing whether the stage goal has been met using persisted session context
+- Artifact existence may remain a useful signal, but it must not be the deciding completion mechanism
+- The evaluator should sit behind the existing provider boundary so orchestration remains separate from model-specific code
 - Loop accounting should remain in orchestration state so the system can halt deterministically when a stage exceeds `max_loops`
 
 Implementation note after the completed orchestration milestone:
 
 - Stage advancement now depends on an explicit evaluator service rather than the runner's completion flag
-- The current evaluator requires artifact matches on both `stage_id` and artifact `kind` for the active stage
-- `completion_conditions` remain descriptive until a later milestone introduces a parsed policy format beyond artifact checks
+- The current evaluator is still simpler than the target design and does not yet perform LLM-based judgment against the stage goal
+- Workflow selection and initial plan derivation are still more static than the target design
 
 Implementation note for the live-model milestone:
 
@@ -196,8 +221,9 @@ Implementation note for the first real example milestone:
 ## Open Questions
 
 - Which provider abstraction should be introduced first beyond Azure OpenAI support?
-- Should stage definitions remain YAML-first or move into a richer config model?
+- What is the smallest reliable prompt contract for LLM-based stage evaluation against a stage goal?
+- Should stage evaluation use the same provider configuration as agent execution or a dedicated evaluator model or profile?
+- Should workflow configuration remain YAML-first or move into a richer config model later?
 - How strict should shell command policies be in the first live-model milestone?
 - What is the smallest useful HTTP API surface for the next iteration?
-- When should `completion_conditions` move from descriptive metadata to a parsed policy format beyond artifact evaluation?
 - Should the first example workflow write final outputs only as persisted artifacts, or also materialize files under a checked output directory such as `data/example/migration-clean/output`?

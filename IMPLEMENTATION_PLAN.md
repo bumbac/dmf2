@@ -17,6 +17,15 @@ This implementation follows the OpenCode reference at a structural level, adapte
 
 ## Current Implementation Progress
 
+## Runtime Problem Definition
+
+The current runtime still treats the user prompt as the effective starting problem definition. The intended model should be:
+
+- the workflow configuration file defines the ordered stages and their goals
+- the user prompt provides request-specific context for a run of that workflow
+
+The runtime should therefore derive both stage routing and the initial session plan from the workflow configuration rather than from a fixed scaffold plan.
+
 The current codebase is a functional scaffold with a working provider boundary, and it now includes real child task sessions, but it is not yet a finished product.
 
 Reality check after running the checked-in SQL migration example:
@@ -33,7 +42,7 @@ Implemented:
 - Durable repository for sessions, messages, summaries, plans, progress, artifacts, and events in `src/dmf2_agents/repository.py`
 - Domain models in `src/dmf2_agents/domain.py`
 - Skill discovery from `skills/**/SKILL.md` in `src/dmf2_agents/skills.py`
-- Stage registry from `examples/pipeline.yaml` in `src/dmf2_agents/stages.py`
+- Stage registry from a YAML workflow file in `src/dmf2_agents/stages.py`
 - Agent registry with scoped tools in `src/dmf2_agents/agents.py`
 - Tool registry with permission checks in `src/dmf2_agents/tools.py`
 - Memory, artifact, and event services in `src/dmf2_agents/memory.py`, `src/dmf2_agents/artifacts.py`, and `src/dmf2_agents/events.py`
@@ -44,7 +53,7 @@ Implemented:
 - Iterative provider turns in `src/dmf2_agents/runner.py`, with persisted assistant and tool-result messages between decisions
 - Child task session creation and parent-child linkage in `src/dmf2_agents/tasks.py`
 - Bootstrap and CLI entrypoint in `src/dmf2_agents/bootstrap.py` and `src/dmf2_agents/cli.py`
-- Artifact-based stage completion that requires matching `stage_id` and artifact kind for the active stage
+- Stage evaluator service integrated into orchestration
 - Stage loop accounting and clean halting when a stage exceeds `max_loops`
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
@@ -54,13 +63,19 @@ Implemented but intentionally simplified:
 - `run_task_agent` now spawns a true child session and returns a structured task result, but task semantics still reuse the parent stage context and there are not yet dedicated lineage tables
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
-- Stage completion currently supports artifact-based evaluation only; richer validation checks, task-result signals, and parsed completion-condition policies are not yet implemented
+- The active workflow file is still selected from a hardcoded bootstrap path rather than configured at runtime
+- The initial session plan is currently a generic scaffold and is not yet derived from the workflow configuration
+- Stage completion currently uses a simple persisted-signal evaluator and does not yet determine whether the stage goal has actually been met
 - The provider contract still includes `mark_stage_complete`, but orchestration no longer uses it to advance stages
 - The checked-in SQL migration example can be invoked through the CLI, but it still yields generic note artifacts instead of Oracle migration outputs
 
 Not yet implemented:
 
-- Richer stage completion evaluators based on validation checks, task outputs, or parsed `completion_conditions`
+- Runtime workflow selection instead of a hardcoded bootstrap pipeline path
+- Initial plan generation derived from the workflow configuration
+- LLM-based stage evaluation against the stage goal using persisted chat history, progress, and relevant outputs
+- Removal of output artifact requirements as a workflow configuration contract
+- Planner read-only analysis permissions for file reads and shell commands
 - HTTP API for session creation, monitoring, and event streaming
 - Richer permission policies by stage, path, or command patterns
 - Resume behavior for existing sessions and tasks
@@ -71,9 +86,75 @@ Not yet implemented:
 
 ## Next Steps
 
-### 1. Make the checked-in SQL migration example run end to end
+### 1. Make workflow configuration the source of runtime structure
 
 Status: next
+
+Why:
+
+- The current runtime still starts from a raw user prompt plus a hardcoded pipeline path
+- The product needs the workflow definition to be the source of stage ordering, stage goals, and initial plan structure
+- This makes runs more controllable, inspectable, and reusable across sessions
+
+What to implement:
+
+- Load the workflow file from runtime configuration instead of a hardcoded bootstrap path
+- Use the workflow definition to determine the ordered pipeline
+- Generate the initial session plan from the configured stages and goals
+- Remove the requirement to declare output artifacts in the workflow config
+
+Definition of done:
+
+- A session can be started against a selected workflow file
+- The runtime stage queue comes from that workflow file
+- The initial persisted plan is derived from configured stages and goals
+- Workflow configs do not need `output_artifacts` to function
+
+### 2. Replace artifact-based completion with goal-based evaluation
+
+Status: after workflow configuration
+
+Why:
+
+- Artifact existence is not a reliable proxy for stage completion
+- The product requirement is that stages advance when their goals are actually met
+- The evaluator should use persisted context rather than depend on a narrow artifact contract
+
+What to implement:
+
+- Replace artifact-existence evaluation with LLM-based evaluation against the stage goal
+- Provide the evaluator with persisted chat history, progress, and relevant outputs
+- Keep evaluator logic behind the provider boundary
+- Return structured evaluation results with pass or fail and reasoning
+
+Definition of done:
+
+- Stage completion is based on whether the evaluator judges the stage goal satisfied
+- Artifacts are optional supporting evidence, not a required completion contract
+- Tests cover success and failure cases for goal-based evaluation
+
+### 3. Expand planner to support read-only analysis
+
+Why:
+
+- The planner needs to inspect files and run read-only shell commands to form useful stage understanding
+- This increases planning quality without granting write access
+
+What to implement:
+
+- Add file-read and shell-command permissions to the planner agent
+- Keep file-write and code-modification capabilities disabled for the planner
+- Add tests that verify planner can inspect but not modify
+
+Definition of done:
+
+- Planner can read files and run shell commands
+- Planner cannot write files or otherwise modify code
+- Permission tests cover both allowed and denied operations
+
+### 4. Make the checked-in SQL migration example run end to end
+
+Status: after planner permissions
 
 Why:
 
@@ -95,7 +176,7 @@ Definition of done:
 - The sample run succeeds locally without requiring a live model
 - Tests cover the deterministic example path and its output contract
 
-### 2. Prove the live model-backed runner end to end
+### 5. Prove the live model-backed runner end to end
 
 Status: after example workflow
 
@@ -117,7 +198,41 @@ Definition of done:
 - A live model-backed session can complete at least one staged workflow
 - Existing tests remain green and additional coverage exists around provider decisions in runner and orchestration boundaries
 
-### 3. Improve context management and summarization
+### 6. Add a service API and event streaming surface
+
+Why:
+
+- The current CLI is enough for local testing but not for product usage
+- Monitoring progress and state is a core requirement
+
+What to implement:
+
+- Add a thin HTTP API for starting sessions, inspecting sessions, listing artifacts, and reading progress
+- Add event streaming, likely via SSE
+- Keep transport thin and route all behavior through existing services
+
+Definition of done:
+
+- A client can create a session with a text message and monitor stages, progress, and events in real time
+
+### 7. Harden tool permissions and execution controls
+
+Why:
+
+- The product must remain controlled and engineering-first as more autonomy is introduced
+
+What to implement:
+
+- Add policy checks for filesystem paths and shell commands
+- Add stage-specific tool restrictions in addition to agent-specific restrictions
+- Add structured logging around tool execution and failures
+
+Definition of done:
+
+- Disallowed tools, commands, and paths fail consistently with clear errors
+- Tests cover allowed and denied paths
+
+### 8. Improve context management and summarization
 
 Why:
 
@@ -136,59 +251,7 @@ Definition of done:
 - Long sessions can continue with bounded prompt size
 - Summary, plan, progress, and artifacts are all explicitly distinguishable in prompts and persistence
 
-### 4. Add a service API and event streaming surface
-
-Why:
-
-- The current CLI is enough for local testing but not for product usage
-- Monitoring progress and state is a core requirement
-
-What to implement:
-
-- Add a thin HTTP API for starting sessions, inspecting sessions, listing artifacts, and reading progress
-- Add event streaming, likely via SSE
-- Keep transport thin and route all behavior through existing services
-
-Definition of done:
-
-- A client can create a session with a text message and monitor stages, progress, and events in real time
-
-### 5. Harden tool permissions and execution controls
-
-Why:
-
-- The product must remain controlled and engineering-first as more autonomy is introduced
-
-What to implement:
-
-- Add policy checks for filesystem paths and shell commands
-- Add stage-specific tool restrictions in addition to agent-specific restrictions
-- Add structured logging around tool execution and failures
-
-Definition of done:
-
-- Disallowed tools, commands, and paths fail consistently with clear errors
-- Tests cover allowed and denied paths
-
-### 6. Extend stage evaluators beyond artifact existence
-
-Why:
-
-- Artifact presence is the right first persisted signal, but it is not sufficient for all stages
-- Some workflows will need validation results, task outputs, or explicit parsed policies to determine completion
-
-What to implement:
-
-- Extend the evaluator to support validation artifacts and task-result presence
-- Decide whether `completion_conditions` should become a small parsed policy format
-- Keep the current artifact-based path as the simplest default behavior
-
-Definition of done:
-
-- Stages can require more than artifact existence without leaking completion logic back into the runner
-- Tests cover multi-signal completion and failure paths
-
-### 7. Add resume behavior and richer persistence for orchestration lineage
+### 9. Add resume behavior and richer persistence for orchestration lineage
 
 Why:
 
@@ -208,15 +271,17 @@ Definition of done:
 
 ## Recommended Execution Order
 
-1. End-to-end live model validation
-2. Deterministic checked-in example workflow
-3. Better summary and context compaction
-4. HTTP API and event streaming
-5. Permission hardening
-6. Richer stage evaluators
-7. Resume behavior and lineage persistence
+1. Workflow-driven runtime structure
+2. Goal-based stage evaluation
+3. Planner read-only analysis permissions
+4. Deterministic checked-in example workflow
+5. End-to-end live model validation
+6. HTTP API and event streaming
+7. Permission hardening
+8. Better summary and context compaction
+9. Resume behavior and lineage persistence
 
-This order preserves momentum while keeping risk low. The checked-in example should become a real file-to-output workflow first, because it creates a concrete contract for both the deterministic stub path and the live-model path before expanding the external surface.
+This order preserves momentum while keeping risk low. The runtime should first become truly workflow-config-driven, then use goal-based evaluation, and only then rely on those contracts for the checked-in example and live-model validation.
 
 ## Risks And Constraints
 
@@ -224,7 +289,10 @@ This order preserves momentum while keeping risk low. The checked-in example sho
 - Real model integration can still blur separation of concerns if tool logic leaks into provider code
 - Shell and filesystem tools become a real safety concern once live model execution is enabled
 - Prompt growth will become a practical issue quickly after enabling live model reasoning
-- Artifact-based stage completion is intentionally narrow and may not cover all workflow semantics without expanding evaluator inputs
+- Goal-based LLM evaluation can become too permissive or too strict if the evaluator prompt and evidence set are weak
+- Without stage-scoped message metadata, evaluator context may include more session history than ideal
+- Allowing planner read access to shell commands requires clear read-only expectations and future command-policy hardening
+- A workflow config that defines stages and goals well is now more important because it becomes part of the runtime contract rather than passive metadata
 - Postgres schema is still minimal and may need migrations once stage runs and task lineage are introduced
 - A generic scaffold pipeline can appear healthy while still failing the product need for a concrete end-to-end example
 - If the stub path stays too generic, local development will continue to validate orchestration rather than real deliverable generation
@@ -239,6 +307,8 @@ Add tests for:
 - End-to-end live-model workflow behavior once a safe integration test path exists
 - Summary compaction behavior on longer sessions
 - Path and command permission enforcement
-- Richer evaluator behavior once validation and task-result signals are introduced
+- Goal-based evaluator behavior using persisted context
+- Workflow-selected pipeline loading and plan derivation
+- Planner permission behavior for read-only inspection
 - Resume and lineage behavior once dedicated persistence is added
 - API-level session lifecycle behavior
