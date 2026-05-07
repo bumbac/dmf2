@@ -19,12 +19,12 @@ This implementation follows the OpenCode reference at a structural level, adapte
 
 ## Runtime Problem Definition
 
-The current runtime still treats the user prompt as the effective starting problem definition. The intended model should be:
+The runtime now uses the workflow configuration file as the primary source of stage ordering and initial plan structure. The intended model is:
 
 - the workflow configuration file defines the ordered stages and their goals
 - the user prompt provides request-specific context for a run of that workflow
 
-The runtime should therefore derive both stage routing and the initial session plan from the workflow configuration rather than from a fixed scaffold plan.
+The runtime should continue to derive both stage routing and the initial session plan from the workflow configuration, with the user prompt supplying request-specific context for a run of that workflow.
 
 The current codebase is a functional scaffold with a working provider boundary, and it now includes real child task sessions, but it is not yet a finished product.
 
@@ -32,8 +32,9 @@ Reality check after running the checked-in SQL migration example:
 
 - The end-to-end CLI session completes successfully against `data/example/migration-clean/input`
 - The current default backend is still the deterministic stub path unless live model settings are present
-- The sample run proves stage orchestration, persistence, and iterative tool-result feedback, but it does not yet produce real Oracle migration deliverables
-- The current stub backend repeatedly writes generic stage artifacts until the per-agent iteration limit, so the example is not yet a true file-to-output workflow
+- The live Azure path has now been exercised end to end through the provider boundary using `langchain-openai`
+- The sample run proves stage orchestration, persistence, iterative tool-result feedback, and live-model tool-calling, but it still does not consistently produce real Oracle migration deliverables
+- The current stub backend still writes generic stage artifacts, so the example is not yet a deterministic file-to-output workflow
 
 Implemented:
 
@@ -49,46 +50,44 @@ Implemented:
 - Prompt assembly from summary, plan, progress, artifacts, and skills in `src/dmf2_agents/prompting.py`
 - LangGraph stage loop in `src/dmf2_agents/orchestrator.py`
 - Stage evaluator service in `src/dmf2_agents/evaluators.py`
-- Provider abstraction with a deterministic stub backend and Azure OpenAI adapter in `src/dmf2_agents/providers.py`
+- Provider abstraction with a deterministic stub backend and a LangChain-based Azure OpenAI adapter in `src/dmf2_agents/providers.py`
 - Iterative provider turns in `src/dmf2_agents/runner.py`, with persisted assistant and tool-result messages between decisions
 - Child task session creation and parent-child linkage in `src/dmf2_agents/tasks.py`
 - Bootstrap and CLI entrypoint in `src/dmf2_agents/bootstrap.py` and `src/dmf2_agents/cli.py`
 - Stage evaluator service integrated into orchestration
 - Stage loop accounting and clean halting when a stage exceeds `max_loops`
+- Runtime workflow selection through CLI/bootstrap and workflow-derived initial session plans
+- Goal-shaped stage evaluation results with provider-backed evaluation support and per-stage evaluation mode overrides
+- Planner read-only analysis permissions for file reads and shell commands
+- Live Azure tool-calling compatibility fixes for multi-turn tool replay and strict tool schemas
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
 Implemented but intentionally simplified:
 
-- The `AgentRunner` now supports iterative provider turns and feeds tool results back into the provider, but the live path has not yet been validated through a real domain-specific staged workflow that produces deliverable files
+- The `AgentRunner` now supports iterative provider turns and feeds tool results back into the provider, and the live Azure path has been validated through staged sessions, but the checked-in migration workflow still does not reliably produce deliverable files
 - `run_task_agent` now spawns a true child session and returns a structured task result, but task semantics still reuse the parent stage context and there are not yet dedicated lineage tables
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
-- The active workflow file is still selected from a hardcoded bootstrap path rather than configured at runtime
-- The initial session plan is currently a generic scaffold and is not yet derived from the workflow configuration
-- Stage completion currently uses a simple persisted-signal evaluator and does not yet determine whether the stage goal has actually been met
+- Stage evaluation is now routed through an evaluator service and can use provider-based judgment, but the evaluator evidence and prompt are still too permissive for the migration workflow
 - The provider contract still includes `mark_stage_complete`, but orchestration no longer uses it to advance stages
-- The checked-in SQL migration example can be invoked through the CLI, but it still yields generic note artifacts instead of Oracle migration outputs
+- The checked-in SQL migration example can be invoked through the CLI and the agents do inspect the checked-in input files, but the workflow still tends to stall before writing Oracle migration outputs and validation artifacts
 
 Not yet implemented:
 
-- Runtime workflow selection instead of a hardcoded bootstrap pipeline path
-- Initial plan generation derived from the workflow configuration
-- LLM-based stage evaluation against the stage goal using persisted chat history, progress, and relevant outputs
-- Removal of output artifact requirements as a workflow configuration contract
-- Planner read-only analysis permissions for file reads and shell commands
 - HTTP API for session creation, monitoring, and event streaming
 - Richer permission policies by stage, path, or command patterns
 - Resume behavior for existing sessions and tasks
 - Dedicated tables for stage runs and task lineage
-- A deterministic example workflow path that reads `data/example/migration-clean/input` and writes real Oracle migration output
-- Sample-specific prompts, stages, and validation artifacts for the SQL-to-Oracle example
+- A deterministic example workflow path that reads `data/example/migration-clean/input` and writes real Oracle migration output files
+- A strict output contract and validation artifact flow for the SQL-to-Oracle example
+- Evaluator evidence and prompts strong enough to reject stages that only inspect files without producing required deliverables
 - Output file conventions for generated example results
 
 ## Next Steps
 
 ### 1. Make workflow configuration the source of runtime structure
 
-Status: next
+Status: completed
 
 Why:
 
@@ -112,7 +111,7 @@ Definition of done:
 
 ### 2. Replace artifact-based completion with goal-based evaluation
 
-Status: after workflow configuration
+Status: mostly completed
 
 Why:
 
@@ -132,8 +131,11 @@ Definition of done:
 - Stage completion is based on whether the evaluator judges the stage goal satisfied
 - Artifacts are optional supporting evidence, not a required completion contract
 - Tests cover success and failure cases for goal-based evaluation
+- Remaining gap: evaluator prompts and evidence still need tightening for workflows that require concrete output files and validation artifacts
 
 ### 3. Expand planner to support read-only analysis
+
+Status: completed
 
 Why:
 
@@ -154,7 +156,7 @@ Definition of done:
 
 ### 4. Make the checked-in SQL migration example run end to end
 
-Status: after planner permissions
+Status: next
 
 Why:
 
@@ -165,9 +167,9 @@ Why:
 What to implement:
 
 - Add explicit workflow conventions for the example input at `data/example/migration-clean/input`
-- Make the execution path read the example SQL files and produce Oracle-compatible output artifacts, and likely output files, instead of generic stage notes
+- Make the execution path read the example SQL files and produce Oracle-compatible output artifacts and output files instead of generic stage notes
 - Add a deterministic local success path for the sample when the backend is `stub`
-- Add validation that checks for expected deliverables, not just artifact existence
+- Add validation that checks for expected deliverables, not just artifact existence or conversational evidence
 - Ensure the final outputs are easy to inspect after the run
 
 Definition of done:
@@ -178,7 +180,7 @@ Definition of done:
 
 ### 5. Prove the live model-backed runner end to end
 
-Status: after example workflow
+Status: partially completed
 
 Why:
 
@@ -197,6 +199,7 @@ Definition of done:
 
 - A live model-backed session can complete at least one staged workflow
 - Existing tests remain green and additional coverage exists around provider decisions in runner and orchestration boundaries
+- Remaining gap: the live migration workflow still needs to satisfy a real deliverable contract rather than merely complete structurally
 
 ### 6. Add a service API and event streaming surface
 
@@ -274,14 +277,14 @@ Definition of done:
 1. Workflow-driven runtime structure
 2. Goal-based stage evaluation
 3. Planner read-only analysis permissions
-4. Deterministic checked-in example workflow
-5. End-to-end live model validation
+4. Deterministic checked-in example workflow and strict output contract
+5. End-to-end live model validation against that contract
 6. HTTP API and event streaming
 7. Permission hardening
 8. Better summary and context compaction
 9. Resume behavior and lineage persistence
 
-This order preserves momentum while keeping risk low. The runtime should first become truly workflow-config-driven, then use goal-based evaluation, and only then rely on those contracts for the checked-in example and live-model validation.
+This order still preserves momentum while keeping risk low. The runtime is now workflow-config-driven and goal-evaluated, so the next risk-reducing step is to make the checked-in example deterministic and output-contract-driven before relying on the live path for product confidence.
 
 ## Risks And Constraints
 

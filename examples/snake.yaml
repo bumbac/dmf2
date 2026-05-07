@@ -1,0 +1,25 @@
+stages:
+  - id: discover
+    name: Discover game rules and coding instructions
+    goal: Understand the game rules and coding instructions.
+    assigned_agents: [planner]
+    max_loops: 20
+    evaluation_mode: provider
+  - id: design
+    name: Design game strategy and code structure
+    goal: Produce a game strategy and code structure that will be used to implement the game.
+    assigned_agents: [planner]
+    max_loops: 20
+    evaluation_mode: provider
+  - id: execute
+    name: Produce game code, run the game and write the game results
+    goal: Produce game code based on the game strategy and code structure.
+    assigned_agents: [builder]
+    max_loops: 20
+    evaluation_mode: provider
+  - id: validate
+    name: Validate game results
+    goal: Review the game results and determine if the game was won or lost.
+    assigned_agents: [reviewer]
+    max_loops: 20
+    evaluation_mode: provider

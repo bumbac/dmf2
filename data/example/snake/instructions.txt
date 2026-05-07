@@ -1,0 +1,6 @@
+develop a snake game in python
+use uv
+run in terminal
+save results to a file with the name of the game and the date, order by top 10 results.
+
+Save code to data/example/snake/src

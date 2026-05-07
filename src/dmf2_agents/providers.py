@@ -9,9 +9,9 @@ from .domain import AgentDefinition, StageDefinition
 from .tools import ToolDefinition
 
 try:
-    from openai import AzureOpenAI
+    from langchain_openai import AzureChatOpenAI
 except ImportError:  # pragma: no cover
-    AzureOpenAI = None
+    AzureChatOpenAI = None
 
 
 class ToolCallDecision(BaseModel):
@@ -145,33 +145,35 @@ class StubProvider:
 
 class OpenAIGatewayClient:
     def __init__(self, config: GatewayConfig):
-        if AzureOpenAI is None:
-            raise RuntimeError("openai package is required for Azure OpenAI support")
+        if AzureChatOpenAI is None:
+            raise RuntimeError("langchain-openai package is required for Azure OpenAI support")
         self.config = config
         if config.provider != "azure_openai":
             raise ValueError(f"unsupported gateway provider: {config.provider}")
-        self.client = AzureOpenAI(
+        self.client = AzureChatOpenAI(
             azure_endpoint=config.endpoint,
             api_key=config.api_key,
             api_version=config.api_version,
+            azure_deployment=config.model,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
         )
 
     def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any:
-        tool_payload = [self._tool_payload(tool) for tool in tools]
-        request: dict[str, Any] = {
-            "model": self.config.model,
-            "messages": [
+        client = self.client.bind_tools([self._tool_payload(tool) for tool in tools], tool_choice="auto")
+        return client.invoke(
+            [
                 {
                     "role": "system",
                     "content": (
                         "You are a controlled stage-based agent. Use only the supplied tools when needed. "
-                        "Always return a final response message, and set mark_stage_complete only when the stage work is done."
+                        "Always return a final response message as strict JSON with fields 'response' and 'mark_stage_complete'. "
+                        "Set mark_stage_complete only when the stage work is done."
                     ),
                 },
                 *[self._serialize_message(message) for message in messages],
             ],
-            "tools": tool_payload or None,
-            "response_format": {
+            response_format={
                 "type": "json_schema",
                 "json_schema": {
                     "name": "agent_decision",
@@ -187,19 +189,11 @@ class OpenAIGatewayClient:
                     "strict": True,
                 },
             },
-        }
-        if self.config.temperature != 1:
-            request["temperature"] = self.config.temperature
-        if self.config.max_tokens is not None:
-            request["max_tokens"] = self.config.max_tokens
-        return self.client.chat.completions.create(
-            **request,
         )
 
     def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any:
-        request: dict[str, Any] = {
-            "model": self.config.model,
-            "messages": [
+        return self.client.invoke(
+            [
                 {
                     "role": "system",
                     "content": (
@@ -216,7 +210,7 @@ class OpenAIGatewayClient:
                 },
                 *[self._serialize_message(message) for message in messages],
             ],
-            "response_format": {
+            response_format={
                 "type": "json_schema",
                 "json_schema": {
                     "name": "stage_evaluation",
@@ -232,13 +226,6 @@ class OpenAIGatewayClient:
                     "strict": True,
                 },
             },
-        }
-        if self.config.temperature != 1:
-            request["temperature"] = self.config.temperature
-        if self.config.max_tokens is not None:
-            request["max_tokens"] = self.config.max_tokens
-        return self.client.chat.completions.create(
-            **request,
         )
 
     def _serialize_message(self, message: ProviderMessage) -> dict[str, Any]:
@@ -263,6 +250,7 @@ class OpenAIGatewayClient:
                 "name": tool.name,
                 "description": tool.description,
                 "parameters": self._tool_parameters(tool.name),
+                "strict": True,
             },
         }
 
@@ -306,7 +294,7 @@ class OpenAIGatewayClient:
                     "content": {"type": "string"},
                 },
                 "required": ["kind", "title", "content"],
-                "additionalProperties": True,
+                "additionalProperties": False,
             }
         if tool_name == "update_progress":
             return {
@@ -315,7 +303,7 @@ class OpenAIGatewayClient:
                     "message": {"type": "string"},
                     "status": {"type": "string"},
                 },
-                "required": ["message"],
+                "required": ["message", "status"],
                 "additionalProperties": False,
             }
         if tool_name == "load_skill":
@@ -358,22 +346,10 @@ class GatewayProvider:
         tools: list[ToolDefinition],
     ) -> AgentDecision:
         completion = self.client.create_response(messages=messages, tools=tools)
-        choice = completion.choices[0].message
-        content = choice.content or "{}"
-        try:
-            payload = json.loads(content)
-        except json.JSONDecodeError as exc:  # pragma: no cover
-            raise ValueError(f"provider returned invalid JSON: {content}") from exc
+        payload = self._extract_payload(completion, context="decision")
         tool_calls: list[ToolCallDecision] = []
-        for tool_call in choice.tool_calls or []:
-            args = tool_call.function.arguments or "{}"
-            try:
-                arguments = json.loads(args)
-            except json.JSONDecodeError as exc:  # pragma: no cover
-                raise ValueError(f"tool call '{tool_call.function.name}' returned invalid JSON arguments") from exc
-            tool_calls.append(
-                ToolCallDecision(id=getattr(tool_call, "id", None), tool_name=tool_call.function.name, arguments=arguments)
-            )
+        for tool_call in self._extract_tool_calls(completion):
+            tool_calls.append(tool_call)
         payload.setdefault("response", "Tool call requested.")
         payload.setdefault("mark_stage_complete", False)
         try:
@@ -388,16 +364,78 @@ class GatewayProvider:
         messages: list[ProviderMessage],
     ) -> StageEvaluationDecision:
         completion = self.client.create_stage_evaluation_response(stage=stage, messages=messages)
-        choice = completion.choices[0].message
-        content = choice.content or "{}"
-        try:
-            payload = json.loads(content)
-        except json.JSONDecodeError as exc:  # pragma: no cover
-            raise ValueError(f"provider returned invalid JSON: {content}") from exc
+        payload = self._extract_payload(completion, context="stage evaluation")
         try:
             return StageEvaluationDecision.model_validate(payload)
         except ValidationError as exc:  # pragma: no cover
             raise ValueError(f"provider stage evaluation failed validation: {exc}") from exc
+
+    def _extract_payload(self, completion: Any, *, context: str) -> dict[str, Any]:
+        if isinstance(completion, dict):
+            return dict(completion)
+        if hasattr(completion, "choices"):
+            choice = completion.choices[0].message
+            return self._parse_json_content(choice.content, context=context)
+        content = getattr(completion, "content", None)
+        if isinstance(content, str):
+            return self._parse_json_content(content, context=context)
+        raise ValueError(f"provider returned unexpected {context} payload: {completion!r}")
+
+    def _parse_json_content(self, content: str | None, *, context: str) -> dict[str, Any]:
+        raw = (content or "{}").strip()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            index = 0
+            payload = None
+            while index < len(raw):
+                while index < len(raw) and raw[index].isspace():
+                    index += 1
+                if index >= len(raw):
+                    break
+                try:
+                    candidate, end = decoder.raw_decode(raw, index)
+                except json.JSONDecodeError as exc:  # pragma: no cover
+                    raise ValueError(f"provider returned invalid JSON: {content}") from exc
+                if isinstance(candidate, dict):
+                    payload = candidate
+                index = end
+            if payload is None:
+                raise ValueError(f"provider returned invalid {context} payload: {content}")
+        if not isinstance(payload, dict):
+            raise ValueError(f"provider returned unexpected {context} payload: {payload!r}")
+        return payload
+
+    def _extract_tool_calls(self, completion: Any) -> list[ToolCallDecision]:
+        if hasattr(completion, "choices"):
+            source_calls = completion.choices[0].message.tool_calls or []
+            parsed_calls = []
+            for tool_call in source_calls:
+                args = tool_call.function.arguments or "{}"
+                try:
+                    arguments = json.loads(args)
+                except json.JSONDecodeError as exc:  # pragma: no cover
+                    raise ValueError(f"tool call '{tool_call.function.name}' returned invalid JSON arguments") from exc
+                parsed_calls.append(
+                    ToolCallDecision(id=getattr(tool_call, "id", None), tool_name=tool_call.function.name, arguments=arguments)
+                )
+            return parsed_calls
+        source_calls = getattr(completion, "tool_calls", None) or []
+        parsed_calls = []
+        for tool_call in source_calls:
+            name = tool_call.get("name") or tool_call.get("function", {}).get("name")
+            arguments = tool_call.get("args")
+            if arguments is None:
+                raw_arguments = tool_call.get("function", {}).get("arguments", "{}")
+                try:
+                    arguments = json.loads(raw_arguments)
+                except json.JSONDecodeError as exc:  # pragma: no cover
+                    raise ValueError(f"tool call '{name}' returned invalid JSON arguments") from exc
+            parsed_calls.append(
+                ToolCallDecision(id=tool_call.get("id"), tool_name=name, arguments=arguments)
+            )
+        return parsed_calls
 
 
 def build_provider(config: GatewayConfig) -> ProviderClient:

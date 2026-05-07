@@ -139,36 +139,34 @@ Implemented now:
 - Agent registry, stage registry, skill registry, and tool registry
 - Prompt builder that includes summary, plan, progress, artifacts, and skills
 - Artifact, progress, and event persistence
-- CLI entrypoint for running a session
+- CLI entrypoint for running a session with runtime workflow selection
 - Child task sessions with parent-child linkage using the durable session model
 - Explicit stage evaluator service wired into orchestration
 - Stage loop accounting and halting behavior based on `max_loops`, including retry and halt events
 - Tests for the current scaffold
 - The runner now supports iterative provider turns with persisted tool-result messages between decisions
+- Initial session plan generation derived from the configured workflow stages and goals
+- Goal-based stage evaluation with structured pass/fail reasoning and per-stage evaluation mode overrides
+- Planner read-only analysis permissions for file reads and shell commands
+- LangChain-based Azure OpenAI adapter for structured output and tool-calling
+- Live Azure tool-calling compatibility for strict schemas and multi-turn tool replay
 
 Partially implemented:
 
 - Summary generation exists but is simple and not model-backed
-- Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and an Azure OpenAI adapter for structured output and tool-calling
+- Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and a LangChain Azure OpenAI adapter for structured output and tool-calling
 - Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
-- Stage completion currently uses a simple persisted-signal evaluator and does not yet judge whether the configured stage goal has actually been met
-- The initial session plan is currently generic and not yet derived from the workflow configuration
-- The pipeline path is currently hardcoded in bootstrap rather than selected from configuration at runtime
-- A CLI session can be run end to end against the sample SQL migration prompt, but the default stub backend still produces generic scaffold artifacts rather than Oracle migration deliverables
+- Stage completion now uses an explicit evaluator and can be provider-backed, but evaluator evidence is still too permissive for workflows that require concrete deliverables
+- A CLI session can be run end to end against the sample SQL migration prompt, and agents inspect the checked-in SQL inputs, but the sample still does not reliably produce Oracle migration deliverables or a validation report
 
 Not yet implemented:
 
 - HTTP API and event streaming
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
-- Workflow-selected pipeline loading at runtime instead of a hardcoded default path
-- Initial plan generation derived from the workflow configuration
-- LLM-based stage evaluation against the stage goal using persisted session context
-- Removal of output artifact requirements as the primary completion mechanism
-- Planner read-only analysis permissions for files and shell commands
 - A deterministic file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
-- Prompt and stage definitions specialized enough for the SQL-to-Oracle sample to produce useful deliverables instead of generic notes
-- Output file conventions and validation rules for end-to-end example runs
+- A strict output contract, output file conventions, and validation rules for end-to-end example runs
+- Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables instead of generic notes
 
 ## Architecture Requirements
 
@@ -180,7 +178,7 @@ Not yet implemented:
 
 ## Acceptance Criteria For Next Milestone
 
-- A live model-backed agent runner can complete at least one full staged workflow
+- A live model-backed agent runner can complete at least one full staged workflow against a concrete deliverable contract
 - Session summaries remain bounded as session length grows
 - Progress and events are queryable through a thin service interface
 - The checked-in SQL migration example can be executed locally end to end and produce Oracle-compatible output artifacts that are inspectable after the run
@@ -202,14 +200,15 @@ Implementation note for the next orchestration milestone:
 Implementation note after the completed orchestration milestone:
 
 - Stage advancement now depends on an explicit evaluator service rather than the runner's completion flag
-- The current evaluator is still simpler than the target design and does not yet perform LLM-based judgment against the stage goal
-- Workflow selection and initial plan derivation are still more static than the target design
+- The current evaluator can perform provider-backed judgment against the stage goal, but its evidence and prompt contract still need tightening for concrete file-output workflows
+- Workflow selection and initial plan derivation are now driven by the configured workflow file
 
 Implementation note for the live-model milestone:
 
 - The runner must remain responsible for tool execution, persistence, and permission enforcement
 - Provider adapters may use structured output and tool-calling features, but must return normalized decisions rather than execute tools directly
 - The model integration layer should be shaped like a swappable gateway client so model names, endpoints, and runtime parameters can change without changing orchestration code
+- The current live-model implementation uses `langchain-openai` with Azure OpenAI and must preserve normalized decisions and tool-call replay semantics at the provider boundary
 
 Implementation note for the first real example milestone:
 

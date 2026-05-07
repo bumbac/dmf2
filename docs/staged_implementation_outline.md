@@ -1,96 +1,82 @@
 Staged Implementation Outline
 
-Title: Staged Implementation Outline for Requested Deliverable
-
 Purpose
-- Provide a clear, actionable, staged implementation plan for delivering the requested work.
 
-Scope
-- Produce a staged plan covering Discover, Design, Execute, Validate, and Deliver.
-- Specify deliverables, artifacts, success criteria, estimated time, dependencies, and risks.
+Produce a clear, staged implementation outline for a software project that maps Discover -> Design -> Execute -> Validate. This document prescribes deliverables, checkpoints, artifacts, responsibilities, timelines, and validation criteria so the team can carry out the implementation in clearly defined increments.
 
-Constraints and Assumptions
-- Assumes access to project repository and ability to create files under docs/.
-- Estimates are high-level and should be refined with stakeholders.
+Scope & Assumptions
+
+- Applies to a typical small-to-medium feature implementation (1-6 sprints).
+- Assumes access to a code repository, CI, basic testing tools, and a product owner for approvals.
 
 Stages
 
-1) Discover (Goals: clarify requirements and constraints)
-- Activities:
-  - Review request and any existing artifacts in repo.
-  - Gather clarifying questions from stakeholders.
-  - Identify dependencies, data inputs, and constraints.
-- Outputs / Deliverables:
-  - Requirements summary (docs/discover_requirements.md)
-  - Clarifying questions list (docs/discover_questions.md)
-- Estimated duration: 0.5 - 1 day
-- Validation criteria: Stakeholders confirm requirements or answer clarifying questions.
+1) Discover
+- Goal: Collect requirements, constraints, acceptance criteria, and success metrics.
+- Activities: Stakeholder interviews, review existing code/docs, identify data dependencies and risks.
+- Deliverables: Requirements spec (requirements.md), initial risk log (risk_log.md), acceptance criteria list.
+- Timebox: 1-3 days (or one sprint kickoff slot).
+- Checkpoint: Product-owner sign-off on acceptance criteria.
 
-2) Design (Goals: produce a detailed plan and design decisions)
-- Activities:
-  - Create architecture/approach outline.
-  - Define internal milestones, success metrics, and test plan.
-  - Select libraries, tools, and tech stack choices if applicable.
-- Outputs / Deliverables:
-  - Design document (docs/design_doc.md)
-  - Implementation checklist and timeline (docs/design_timeline.md)
-- Estimated duration: 0.5 - 2 days
-- Validation criteria: Design doc approved by a reviewer or stakeholder.
+2) Design
+- Goal: Produce high-level and low-level designs to guide implementation.
+- Activities: Architecture proposal, API/contract definitions, data model changes, UX wireframes (if applicable), testing strategy.
+- Deliverables: Design doc (design.md), API contract (api.md), DB migration plan (if needed), test plan (test_plan.md).
+- Timebox: 2-5 days.
+- Checkpoint: Design review with engineering leads and PO approval.
 
-3) Execute (Goals: implement deliverables)
-- Activities:
-  - Implement features, scripts, and artifacts according to design.
-  - Create reproducible artifacts and write tests.
-  - Commit changes with clear messages and create release notes.
-- Outputs / Deliverables:
-  - Implementation files (src/ or scripts/)
-  - Unit or integration tests (tests/)
-  - Execution README and usage instructions (docs/usage.md)
-- Estimated duration: 1 - 5 days (depends on scope)
-- Validation criteria: All tests pass locally and artifacts match acceptance criteria.
+3) Execute
+- Goal: Implement the feature incrementally using small, reviewable commits and automated tests.
+- Activities: Branching strategy, incremental implementation, unit/integration tests, code review, CI pipeline updates, incremental demos.
+- Deliverables: Implementation code (in repo), unit/integration tests, CI configuration changes, demo notes.
+- Timebox: Varies (story-level) — typical 1-10 days depending on scope.
+- Checkpoint: Pull request approvals, passing CI, demo to PO.
 
-4) Validate (Goals: verify correctness, quality, and readiness)
-- Activities:
-  - Run tests and QA checks.
-  - Perform reviews and incorporate feedback.
-  - Generate final summary and deployment instructions.
-- Outputs / Deliverables:
-  - Test reports (reports/test_report.md)
-  - Review feedback log (docs/review_feedback.md)
-  - Final readiness checklist (docs/readiness_checklist.md)
-- Estimated duration: 0.5 - 2 days
-- Validation criteria: Stakeholders sign off; readiness checklist complete.
+4) Validate
+- Goal: Verify feature meets acceptance criteria and is stable for release.
+- Activities: QA testing (manual + automated), performance checks, security review (if applicable), user acceptance testing.
+- Deliverables: QA report (qa_report.md), test run artifacts, performance notes, release checklist.
+- Timebox: 1-3 days.
+- Checkpoint: PO sign-off for release.
 
-5) Deliver (Goals: handoff and archive)
-- Activities:
-  - Package deliverables and artifacts.
-  - Provide final documentation and pointers for maintenance.
-  - Archive decisions and rationale.
-- Outputs / Deliverables:
-  - Delivery bundle (deliverables/)
-  - Final artifact summary (docs/final_artifact_summary.md)
-- Estimated duration: 0.5 - 1 day
-- Validation criteria: Delivery accepted by stakeholder; files available in repo.
+Cross-cutting Concerns
 
-Cross-cutting concerns
-- Version control: use Git with clear commit messages and tags.
-- Documentation: every artifact must include purpose, usage, and owner.
-- Testing: include tests where applicable; include instructions to reproduce.
-- Communication: track decisions and open questions in docs/ and progress updates.
+- Communication: Regular standups, design reviews, status updates.
+- Versioning and Branching: Use feature branches, PRs, and protected main branch.
+- Observability: Add logging/metrics where appropriate; ensure tracing for critical flows.
+- Rollback plan: Maintain migration-safe changes and a documented rollback procedure.
 
-Risks and Mitigations
-- Ambiguous requirements: mitigate via early clarifying questions and sign-off.
-- Missing dependencies: identify early in Discover and add to procurement list.
-- Time underestimation: add buffer and prioritize minimum viable deliverable.
+Risks & Mitigations
 
-Deliverable artifacts created by this stage
+- Unknown dependencies: Allocate discovery spike and test early integration.
+- DB migrations: Use lightweight, backwards-compatible migrations.
+- Performance regressions: Add benchmarks early and profile hotspots.
+
+Validation Criteria
+
+- All acceptance criteria passed in QA and UAT.
+- Automated tests covering critical paths and regression tests added.
+- CI pipeline green for the feature branch and merged main.
+
+Files to create (example project paths)
+
 - docs/staged_implementation_outline.md (this file)
+- docs/requirements.md
+- docs/design.md
+- docs/api.md
+- docs/test_plan.md
+- docs/qa_report.md
+- docs/risk_log.md
 
-Next actions
-1. Stakeholder review: share this outline and collect feedback.
-2. Run Discover tasks: create docs/discover_requirements.md and docs/discover_questions.md.
-3. Proceed to Design after requirements are confirmed.
+Next Actions
 
-Contact / Ownership
-- Produced by: execution agent (builder)
-- Recommended reviewers: project stakeholder(s) and technical lead
+1. Review this outline with stakeholders and iterate.
+2. Create the initial requirements.md and risk_log.md during the Discover stage.
+3. Follow the Design stage checklist and produce design.md and api.md.
+4. Implement incrementally with CI and tests during Execute.
+5. Run full validation and produce qa_report.md before release.
+
+Contact
+
+- Prepared by: automated builder agent
+- Date: 2026-05-07

@@ -1,0 +1,6 @@
+Needs to be text only graphic interface.
+
+Room size max 15x15.
+
+print to terminal.
+move by asfd

@@ -3,23 +3,23 @@ stages:
     name: Discover Migration Inputs
     goal: Understand the PostgreSQL to Oracle migration request in `data/example/migration-clean/input/start.txt` and inspect the source SQL in `data/example/migration-clean/input/schema.sql` and `data/example/migration-clean/input/setup.sql`.
     assigned_agents: [planner]
-    max_loops: 2
+    max_loops: 20
     evaluation_mode: provider
   - id: design
     name: Design Oracle Migration
     goal: Produce a migration plan that identifies PostgreSQL-specific constructs, Oracle replacements, required code outputs, and a safe execution order for converting the SQL in `data/example/migration-clean/input`.
     assigned_agents: [planner]
-    max_loops: 2
+    max_loops: 20
     evaluation_mode: provider
   - id: execute
     name: Produce Oracle Migration Code
     goal: Create Oracle-compatible migration outputs based on `data/example/migration-clean/input/schema.sql` and `data/example/migration-clean/input/setup.sql`, without requiring live database access.
     assigned_agents: [builder]
-    max_loops: 2
+    max_loops: 20
     evaluation_mode: provider
   - id: validate
     name: Validate Migration Output
     goal: Review the produced Oracle migration outputs for completeness, PostgreSQL-to-Oracle conversion correctness, and alignment with the request in `data/example/migration-clean/input/start.txt`.
     assigned_agents: [reviewer]
-    max_loops: 2
+    max_loops: 20
     evaluation_mode: provider
