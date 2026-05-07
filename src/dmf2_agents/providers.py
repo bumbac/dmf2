@@ -41,7 +41,7 @@ class GatewayConfig(BaseModel):
     endpoint: str | None = None
     api_key: str | None = None
     api_version: str | None = None
-    temperature: float = 0.1
+    temperature: float | None = None
     max_tokens: int | None = None
 
 
@@ -161,9 +161,9 @@ class OpenAIGatewayClient:
             }
             for tool in tools
         ]
-        return self.client.chat.completions.create(
-            model=self.config.model,
-            messages=[
+        request: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": [
                 {
                     "role": "system",
                     "content": (
@@ -173,10 +173,8 @@ class OpenAIGatewayClient:
                 },
                 *[message.model_dump() for message in messages],
             ],
-            tools=tool_payload or None,
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-            response_format={
+            "tools": tool_payload or None,
+            "response_format": {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "agent_decision",
@@ -192,12 +190,19 @@ class OpenAIGatewayClient:
                     "strict": True,
                 },
             },
+        }
+        if self.config.temperature != 1:
+            request["temperature"] = self.config.temperature
+        if self.config.max_tokens is not None:
+            request["max_tokens"] = self.config.max_tokens
+        return self.client.chat.completions.create(
+            **request,
         )
 
     def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any:
-        return self.client.chat.completions.create(
-            model=self.config.model,
-            messages=[
+        request: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": [
                 {
                     "role": "system",
                     "content": (
@@ -214,9 +219,7 @@ class OpenAIGatewayClient:
                 },
                 *[message.model_dump() for message in messages],
             ],
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-            response_format={
+            "response_format": {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "stage_evaluation",
@@ -232,6 +235,13 @@ class OpenAIGatewayClient:
                     "strict": True,
                 },
             },
+        }
+        if self.config.temperature != 1:
+            request["temperature"] = self.config.temperature
+        if self.config.max_tokens is not None:
+            request["max_tokens"] = self.config.max_tokens
+        return self.client.chat.completions.create(
+            **request,
         )
 
 
@@ -262,6 +272,8 @@ class GatewayProvider:
             except json.JSONDecodeError as exc:  # pragma: no cover
                 raise ValueError(f"tool call '{tool_call.function.name}' returned invalid JSON arguments") from exc
             tool_calls.append(ToolCallDecision(tool_name=tool_call.function.name, arguments=arguments))
+        payload.setdefault("response", "Tool call requested.")
+        payload.setdefault("mark_stage_complete", False)
         try:
             return AgentDecision.model_validate({**payload, "tool_calls": tool_calls})
         except ValidationError as exc:  # pragma: no cover

@@ -21,6 +21,11 @@ class PromptBuilder:
             f"Stage: {stage.name}",
             f"Stage goal: {stage.goal}",
             f"System prompt: {agent.system_prompt}",
+            "Execution guidance:",
+            (
+                "If the stage goal references concrete file paths, inspect those files with available read-only tools before deciding. "
+                "If you can write files and the stage requires deliverables, prefer creating inspectable checked output files while also persisting artifacts that summarize what you produced."
+            ),
             "",
             "Session summary:",
             summary.content if summary else "No summary yet.",

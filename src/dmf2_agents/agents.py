@@ -10,8 +10,19 @@ class AgentRegistry:
                 name="planner",
                 description="Creates plans, summaries, and stage handoffs",
                 mode="primary",
-                system_prompt="You are a planning agent. Produce explicit plans, progress updates, and stage completion decisions.",
-                allowed_tools=["write_artifact", "update_progress", "load_skill", "run_task_agent", "mark_stage_complete"],
+                system_prompt=(
+                    "You are a planning agent. Produce explicit plans, progress updates, and stage completion decisions. "
+                    "When stage goals reference concrete files, inspect them with read-only tools before concluding."
+                ),
+                allowed_tools=[
+                    "write_artifact",
+                    "update_progress",
+                    "load_skill",
+                    "run_task_agent",
+                    "mark_stage_complete",
+                    "read_file",
+                    "run_command",
+                ],
                 allowed_skills=["planning", "artifact-writing"],
                 stage_roles=["discover", "design"],
             ),
@@ -28,8 +39,11 @@ class AgentRegistry:
                 name="reviewer",
                 description="Validates outputs against stage goals",
                 mode="subagent",
-                system_prompt="You are a reviewer. Check whether stage outputs satisfy the stated goal and report risks.",
-                allowed_tools=["write_artifact", "update_progress", "mark_stage_complete"],
+                system_prompt=(
+                    "You are a reviewer. Check whether stage outputs satisfy the stated goal and report risks. "
+                    "Inspect produced files directly when they are available."
+                ),
+                allowed_tools=["write_artifact", "update_progress", "mark_stage_complete", "read_file"],
                 allowed_skills=["code-review"],
                 stage_roles=["validate"],
             ),

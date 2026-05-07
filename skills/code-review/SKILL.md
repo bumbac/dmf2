@@ -4,3 +4,4 @@ description: Review outputs against goals and risks
 ---
 
 Assess whether the output satisfies the stated goal, list risks, and call out missing validation.
+When output files are available, inspect them directly before writing the validation report.

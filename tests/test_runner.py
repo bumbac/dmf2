@@ -245,6 +245,85 @@ def test_runner_denied_tool_call_raises(project_root: Path) -> None:
         )
 
 
+def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None:
+    runner, repo, _ = build_repository_runner(
+        project_root,
+        SequenceProvider(
+            [
+                AgentDecision(
+                    response="inspecting inputs",
+                    tool_calls=[ToolCallDecision(tool_name="read_file", arguments={"path": "examples/pipeline.yaml"})],
+                ),
+                AgentDecision(response="done", mark_stage_complete=True, tool_calls=[]),
+            ]
+        ),
+    )
+    agent = AgentRegistry().get("planner")
+    assert agent is not None
+
+    outcome = runner.run(
+        session_id="s1",
+        stage=StageDefinition(id="discover", name="Discover", goal="Inspect the workflow file", assigned_agents=["planner"]),
+        agent=agent,
+        user_input="inspect",
+    )
+
+    assert outcome.stage_complete is True
+    stored_messages = repo.list_messages("s1")
+    assert any(message.role == "tool" and "stages:" in message.content for message in stored_messages)
+
+    denied_runner, _, _ = build_repository_runner(
+        project_root,
+        FakeProvider(
+            AgentDecision(
+                response="attempting write",
+                tool_calls=[ToolCallDecision(tool_name="write_file", arguments={"path": "tmp/out.txt", "content": "nope"})],
+            )
+        ),
+    )
+    with pytest.raises(PermissionError):
+        denied_runner.run(
+            session_id="s2",
+            stage=StageDefinition(id="discover", name="Discover", goal="Do not write", assigned_agents=["planner"]),
+            agent=agent,
+            user_input="inspect",
+        )
+
+
+def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> None:
+    runner, repo, _ = build_repository_runner(
+        project_root,
+        SequenceProvider(
+            [
+                AgentDecision(
+                    response="reviewing output",
+                    tool_calls=[
+                        ToolCallDecision(tool_name="read_file", arguments={"path": "examples/migration-clean.yaml"}),
+                        ToolCallDecision(
+                            tool_name="write_artifact",
+                            arguments={"kind": "validation_report", "title": "Validation", "content": "Reviewed output files."},
+                        ),
+                    ],
+                ),
+                AgentDecision(response="validated", mark_stage_complete=True, tool_calls=[]),
+            ]
+        ),
+    )
+    agent = AgentRegistry().get("reviewer")
+    assert agent is not None
+
+    outcome = runner.run(
+        session_id="s1",
+        stage=StageDefinition(id="validate", name="Validate", goal="Inspect generated outputs", assigned_agents=["reviewer"]),
+        agent=agent,
+        user_input="validate",
+    )
+
+    assert outcome.stage_complete is True
+    assert repo.list_artifacts("s1")[0].kind == "validation_report"
+    assert any(message.role == "tool" and "Discover Migration Inputs" in message.content for message in repo.list_messages("s1"))
+
+
 def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> None:
     class TaskAwareProvider:
         def __init__(self):

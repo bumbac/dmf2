@@ -15,7 +15,7 @@ class Settings(BaseModel):
     model_endpoint: str | None = Field(default=None)
     model_api_key: str | None = Field(default=None)
     model_api_version: str | None = Field(default=None)
-    model_temperature: float = Field(default=0.1)
+    model_temperature: float | None = Field(default=None)
     model_max_tokens: int | None = Field(default=None)
     azure_openai_endpoint: str | None = Field(default=None)
     azure_openai_api_key: str | None = Field(default=None)
@@ -27,9 +27,26 @@ class Settings(BaseModel):
     human_confirmation_auto_approve: bool = Field(default=True)
 
 
+def _load_dotenv(root: Path) -> None:
+    env_path = root / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if value.startswith(('"', "'")) and value.endswith(('"', "'")) and len(value) >= 2:
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     root = Path.cwd()
+    _load_dotenv(root)
     database_url = os.getenv("DATABASE_URL", "")
     if not database_url:
         host = os.getenv("POSTGRES_HOST", "localhost")
@@ -50,7 +67,7 @@ def get_settings() -> Settings:
         model_endpoint=os.getenv("MODEL_ENDPOINT") or os.getenv("AZURE_OPENAI_ENDPOINT"),
         model_api_key=os.getenv("MODEL_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY"),
         model_api_version=os.getenv("MODEL_API_VERSION") or os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-        model_temperature=float(os.getenv("MODEL_TEMPERATURE", "0.1")),
+        model_temperature=float(os.getenv("MODEL_TEMPERATURE")) if os.getenv("MODEL_TEMPERATURE") else None,
         model_max_tokens=int(os.getenv("MODEL_MAX_TOKENS")) if os.getenv("MODEL_MAX_TOKENS") else None,
         azure_openai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
         azure_openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
