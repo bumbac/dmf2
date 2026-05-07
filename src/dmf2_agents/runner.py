@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from .artifacts import ArtifactService
 from .domain import AgentDefinition, AgentOutcome, MessageRecord
 from .memory import MemoryService
@@ -56,19 +58,28 @@ class AgentRunner:
             self.memory.append_message(
                 MessageRecord(session_id=session_id, role="assistant", agent_name=agent.name, content=decision.response)
             )
-            messages.append(ProviderMessage(role="assistant", content=decision.response))
+            messages.append(ProviderMessage(role="assistant", content=decision.response, tool_calls=decision.tool_calls))
             response = decision.response
             stage_complete = decision.mark_stage_complete
             if not decision.tool_calls:
                 break
             for call in decision.tool_calls:
-                result = self.tools.run(agent.name, call.tool_name, ctx, **call.arguments)
-                tool_actions.append({"tool": call.tool_name, "status": "completed"})
-                tool_result = self._format_tool_result(call.tool_name, result)
+                try:
+                    result = self.tools.run(agent.name, call.tool_name, ctx, **call.arguments)
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    tool_actions.append({"tool": call.tool_name, "status": "failed"})
+                    tool_result = self._format_tool_error(call.tool_name, call.arguments, exc)
+                else:
+                    tool_actions.append({"tool": call.tool_name, "status": "completed"})
+                    tool_result = self._format_tool_result(call.tool_name, result)
                 self.memory.append_message(
                     MessageRecord(session_id=session_id, role="tool", agent_name=agent.name, content=tool_result)
                 )
-                messages.append(ProviderMessage(role="tool", content=tool_result))
+                messages.append(ProviderMessage(role="tool", content=tool_result, tool_call_id=call.id, tool_name=call.tool_name))
+                if "failed" in tool_result:
+                    continue
                 if call.tool_name == "write_artifact":
                     artifacts_written.append({"id": result, "kind": str(call.arguments.get("kind", "artifact"))})
                 if call.tool_name == "update_progress":
@@ -92,3 +103,9 @@ class AgentRunner:
         else:
             payload = result
         return f"Tool '{tool_name}' result: {payload}"
+
+    def _format_tool_error(self, tool_name: str, arguments: dict[str, object], exc: Exception) -> str:
+        return (
+            f"Tool '{tool_name}' failed: {exc}. "
+            f"Arguments received: {json.dumps(arguments, default=str, sort_keys=True)}"
+        )

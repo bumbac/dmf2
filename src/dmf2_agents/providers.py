@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover
 
 
 class ToolCallDecision(BaseModel):
+    id: str | None = None
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
 
@@ -33,6 +34,9 @@ class StageEvaluationDecision(BaseModel):
 class ProviderMessage(BaseModel):
     role: str
     content: str
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    tool_calls: list[ToolCallDecision] = Field(default_factory=list)
 
 
 class GatewayConfig(BaseModel):
@@ -82,6 +86,13 @@ class StubProvider:
     ) -> AgentDecision:
         available_tools = {tool.name for tool in tools}
         prompt = "\n\n".join(message.content for message in messages)
+        tool_messages = [message.content for message in messages if message.role == "tool"]
+        if any("failed:" in message for message in tool_messages):
+            return AgentDecision(
+                response=f"Agent {agent.name} encountered a tool failure and is stopping this turn.",
+                tool_calls=[],
+                mark_stage_complete=False,
+            )
         tool_calls: list[ToolCallDecision] = []
         if "update_progress" in available_tools:
             tool_calls.append(
@@ -171,7 +182,7 @@ class OpenAIGatewayClient:
                         "Always return a final response message, and set mark_stage_complete only when the stage work is done."
                     ),
                 },
-                *[message.model_dump() for message in messages],
+                *[self._serialize_message(message) for message in messages],
             ],
             "tools": tool_payload or None,
             "response_format": {
@@ -217,7 +228,7 @@ class OpenAIGatewayClient:
                         "Judge whether the goal is satisfied based on the provided persisted context."
                     ),
                 },
-                *[message.model_dump() for message in messages],
+                *[self._serialize_message(message) for message in messages],
             ],
             "response_format": {
                 "type": "json_schema",
@@ -243,6 +254,21 @@ class OpenAIGatewayClient:
         return self.client.chat.completions.create(
             **request,
         )
+
+    def _serialize_message(self, message: ProviderMessage) -> dict[str, Any]:
+        payload: dict[str, Any] = {"role": message.role, "content": message.content}
+        if message.tool_calls:
+            payload["tool_calls"] = [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {"name": call.tool_name, "arguments": json.dumps(call.arguments)},
+                }
+                for call in message.tool_calls
+            ]
+        if message.tool_call_id:
+            payload["tool_call_id"] = message.tool_call_id
+        return payload
 
 
 class GatewayProvider:
@@ -271,7 +297,9 @@ class GatewayProvider:
                 arguments = json.loads(args)
             except json.JSONDecodeError as exc:  # pragma: no cover
                 raise ValueError(f"tool call '{tool_call.function.name}' returned invalid JSON arguments") from exc
-            tool_calls.append(ToolCallDecision(tool_name=tool_call.function.name, arguments=arguments))
+            tool_calls.append(
+                ToolCallDecision(id=getattr(tool_call, "id", None), tool_name=tool_call.function.name, arguments=arguments)
+            )
         payload.setdefault("response", "Tool call requested.")
         payload.setdefault("mark_stage_complete", False)
         try:

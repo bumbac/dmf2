@@ -96,7 +96,14 @@ class ToolRegistry:
         proc = subprocess.run(command, cwd=self.root, capture_output=True, text=True, check=False)
         return {"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
 
-    def tool_write_artifact(self, ctx: ToolContext, kind: str, title: str, content: str) -> str:
+    def tool_write_artifact(
+        self,
+        ctx: ToolContext,
+        kind: str,
+        title: str,
+        content: str,
+        **_: Any,
+    ) -> str:
         record = self.artifacts.write_artifact(
             ArtifactRecord(
                 session_id=ctx.session_id,
