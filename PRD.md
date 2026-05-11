@@ -88,6 +88,8 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - Each agent must have a system prompt, mode, allowed tools, allowed skills, and iteration limits
 - The planner agent must be allowed to inspect files and run shell commands for read-only analysis
 - The planner agent must not be allowed to write files or otherwise modify code
+- The builder agent must be allowed to read, write, and execute commands to satisfy concrete stage goals
+- The reviewer agent must be allowed to inspect files and run shell commands for grounded validation, but must not be allowed to write project files
 - Agents must not be able to use tools outside their permissions
 - Agents must be able to request subagent work through a task mechanism
 
@@ -115,6 +117,8 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - The system must maintain chat history, a session summary, a current plan, progress entries, and artifacts
 - The initial session plan must be derived from the configured workflow definition rather than a fixed generic template
 - Prompt assembly must distinguish those context types clearly
+- Prompt assembly should inject mode-specific system reminders for planner, builder, and reviewer behavior
+- Persisted tool outputs should be reusable as later-stage context, even when they are not replayed as native tool-role messages
 - The system should compact or summarize long-running history rather than relying on full transcripts only
 
 ### Artifacts
@@ -141,6 +145,7 @@ Implemented now:
 - LangGraph-based stage loop
 - Agent registry, stage registry, skill registry, and tool registry
 - Prompt builder that includes summary, plan, progress, artifacts, and skills
+- Prompt builder now also includes recent persisted messages and mode-specific system reminders for planner, builder, and reviewer
 - Artifact, progress, and event persistence
 - File-backed artifact persistence under `runtime/artifacts/**` alongside PostgreSQL artifact records
 - Structured artifact prompt formatting with title, content, persisted reference, and load hint
@@ -150,11 +155,14 @@ Implemented now:
 - Stage loop accounting and halting behavior based on `max_loops`, including retry and halt events
 - Tests for the current scaffold
 - The runner now supports iterative provider turns with persisted tool-result messages between decisions
+- The runner now carries recent persisted session history into later stage turns, including historical tool outputs rendered as contextual evidence
 - Initial session plan generation derived from the configured workflow stages and goals
 - Goal-based stage evaluation with structured pass/fail reasoning and per-stage evaluation mode overrides
 - Planner read-only analysis permissions for file reads and shell commands
+- Reviewer read and shell-inspection permissions without project file write access
 - LangChain-based Azure OpenAI adapter for structured output and tool-calling
 - Live Azure tool-calling compatibility for strict schemas and multi-turn tool replay
+- The checked-in migration workflow now completes successfully against a live model and produces Oracle-oriented SQL outputs under `oracle/`
 
 Partially implemented:
 
@@ -162,7 +170,7 @@ Partially implemented:
 - Agent execution now has a provider-backed runtime boundary, with tests using explicit provider doubles and a LangChain Azure OpenAI adapter for structured output and tool-calling
 - Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
 - Stage completion now uses an explicit evaluator and can be provider-backed, but evaluator evidence is still too permissive for workflows that require concrete deliverables
-- A CLI session can be run end to end against the sample SQL migration prompt, and agents inspect the checked-in SQL inputs, but the sample still does not reliably produce Oracle migration deliverables or a validation report
+- A CLI session can be run end to end against the sample SQL migration workflow, and the sample now produces Oracle-oriented output files, but the final output location and validation contract are still too loose
 - Artifact prompting now exposes persisted references, but artifact authoring is still only guided by prompts rather than enforced by a stricter tool schema for chunk labeling or summary structure
 - Schema creation currently depends on `create_all()` for fresh databases, but there is no migration mechanism for upgrading existing PostgreSQL deployments
 
@@ -172,9 +180,9 @@ Not yet implemented:
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
 - Versioned database migrations and operator guidance for applying them to existing PostgreSQL databases
-- A reliable file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
+- A strict output contract for the migration example, such as a canonical checked output directory under `data/example/migration-clean/output`
 - Validator guidance and evaluator evidence strong enough for end-to-end example runs, without requiring rigid file-existence checks or artifact-shape rules as the completion gate
-- Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables instead of generic notes
+- Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables with deterministic paths and stronger validation artifacts
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond file-path references rendered in prompts
 
 ## Architecture Requirements
@@ -212,6 +220,7 @@ Implementation note after the completed orchestration milestone:
 - The current evaluator can perform provider-backed judgment against the stage goal, but its evidence and prompt contract still need tightening for concrete file-output workflows
 - Workflow selection and initial plan derivation are now driven by the configured workflow file
 - Workflow stages now own agent assignment, and stage names are descriptive labels rather than behavior-carrying identifiers
+- Agent modes now mirror the reference split more closely: planner is read-only, builder is execution-capable, reviewer is validation-focused with read and CLI inspection access only
 
 Implementation note for the live-model milestone:
 
@@ -231,9 +240,10 @@ Implementation note for the first real example milestone:
 - The first end-to-end example should be treated as a product requirement, not just a demo prompt
 - The example should have explicit input discovery and inspectable outputs so success does not depend on generic stage notes alone
 - Validation should remain goal-based: the validator should inspect produced outputs, persisted artifacts, progress, and request context with its available tools before determining whether the stage goal has been met
-- In the current implementation, the `reviewer` agent can inspect files with `read_file`, while `planner` and `builder` can also use `run_command` for broader shell-based inspection
+- In the current implementation, the `reviewer` agent can inspect files with `read_file` and shell output with `run_command`, while remaining unable to write files
 - The live-model path should reuse the same stages and inspectable output surface as the general runtime path without requiring rigid file-existence checks or artifact schemas as the completion gate
 - Artifacts now persist both in PostgreSQL and as runtime files, so artifact file references remain part of the inspectable output surface rather than a strict completion contract
+- The current live run proves that the SQL migration workflow can complete and write Oracle-oriented files, but the destination is still model-chosen under `oracle/` rather than a canonical example output directory
 
 ## Open Questions
 

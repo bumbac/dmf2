@@ -32,8 +32,8 @@ Reality check after running the checked-in SQL migration example:
 
 - The end-to-end CLI session completes successfully against `data/example/migration-clean/input`
 - The live Azure path has now been exercised end to end through the provider boundary using `langchain-openai`
-- The sample run proves stage orchestration, persistence, iterative tool-result feedback, and live-model tool-calling, but it still does not consistently produce real Oracle migration deliverables
-- The example is still not yet a reliable file-to-output workflow with a concrete deliverable contract
+- The sample run proves stage orchestration, persistence, iterative tool-result feedback, stage-to-stage context carryover, and live-model tool-calling
+- The sample now produces Oracle-oriented output files under `oracle/`, but the example is still not yet a reliable file-to-output workflow with a canonical deliverable contract
 
 Implemented:
 
@@ -46,7 +46,7 @@ Implemented:
 - Agent registry with scoped tools in `src/dmf2_agents/agents.py`
 - Tool registry with permission checks in `src/dmf2_agents/tools.py`
 - Memory, artifact, and event services in `src/dmf2_agents/memory.py`, `src/dmf2_agents/artifacts.py`, and `src/dmf2_agents/events.py`
-- Prompt assembly from summary, plan, progress, artifacts, and skills in `src/dmf2_agents/prompting.py`, including structured artifact references and load hints
+- Prompt assembly from summary, plan, progress, artifacts, skills, recent persisted messages, and explicit mode reminders in `src/dmf2_agents/prompting.py`
 - LangGraph stage loop in `src/dmf2_agents/orchestrator.py`
 - Stage evaluator service in `src/dmf2_agents/evaluators.py`
 - Provider abstraction with a LangChain-based Azure OpenAI adapter in `src/dmf2_agents/providers.py`
@@ -58,21 +58,23 @@ Implemented:
 - Runtime workflow selection through CLI/bootstrap and workflow-derived initial session plans
 - Goal-shaped stage evaluation results with provider-backed evaluation support and per-stage evaluation mode overrides
 - Planner read-only analysis permissions for file reads and shell commands
+- Reviewer validation permissions for file reads and shell-command inspection without project file writes
 - Live Azure tool-calling compatibility fixes for multi-turn tool replay and strict tool schemas
 - Workflow-defined agent assignment with arbitrary stage names and no stage-role coupling in agent definitions
 - Artifact persistence to PostgreSQL plus file-backed copies under `runtime/artifacts/**`, with persisted `file_path` references and `storage_kind`
+- Cross-stage context propagation from persisted messages, progress, artifacts, and historical tool outputs
 - Explicit fake-provider-based tests instead of a checked-in stub runtime backend
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
 Implemented but intentionally simplified:
 
-- The `AgentRunner` now supports iterative provider turns and feeds tool results back into the provider, and the live Azure path has been validated through staged sessions, but the checked-in migration workflow still does not reliably produce deliverable files
+- The `AgentRunner` now supports iterative provider turns and feeds tool results back into the provider, and historical tool outputs are replayed into later stages as system context rather than native tool-role messages
 - `run_task_agent` now spawns a true child session and returns a structured task result, but task semantics still reuse the parent stage context and there are not yet dedicated lineage tables
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
-- Stage evaluation is now routed through an evaluator service and can use provider-based judgment, but the evaluator evidence and prompt are still too permissive for the migration workflow
+- Stage evaluation is now routed through an evaluator service and can use provider-based judgment, with prior-stage progress and artifacts included in evaluation context, but the evaluator evidence and prompt are still too permissive for the migration workflow
 - Artifact prompts now expose title, content, file reference, and a load hint, but artifact authoring conventions such as chunk labeling are still guided by prompt instructions rather than enforced by tool schema
-- The checked-in SQL migration example can be invoked through the CLI and the agents do inspect the checked-in input files, but the workflow still tends to stall before writing Oracle migration outputs and grounded validation evidence
+- The checked-in SQL migration example can now be invoked through the CLI, the agents inspect the checked-in input files, and the workflow writes Oracle-oriented SQL outputs, but grounded validation evidence and output conventions are still weaker than the target contract
 
 Not yet implemented:
 
@@ -80,10 +82,10 @@ Not yet implemented:
 - Richer permission policies by stage, path, or command patterns
 - Resume behavior for existing sessions and tasks
 - Dedicated tables for stage runs and task lineage
-- A reliable example workflow path that reads `data/example/migration-clean/input` and writes real Oracle migration output files
+- A canonical example workflow output contract, such as writing final generated files under `data/example/migration-clean/output`
 - Validator guidance and evaluator evidence strong enough for the SQL-to-Oracle example to produce inspectable outputs and let the validator determine goal completion from grounded inspection rather than rigid file checks
 - Evaluator evidence and prompts strong enough to reject stages that only inspect files shallowly without producing or validating meaningful deliverables
-- Output file conventions for generated example results
+- Strict read-only command enforcement for planner and reviewer shell usage
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond persisted file references in prompt context
 - A real schema migration path for existing PostgreSQL databases instead of relying on `create_all()` for fresh databases only
 
@@ -160,18 +162,18 @@ Definition of done:
 
 ### 4. Make the checked-in SQL migration example run end to end
 
-Status: next
+Status: partially completed
 
 Why:
 
 - A local end-to-end example is now a concrete product need, not just a nice-to-have demo
-- The current sample run completes structurally but does not produce usable migration output
+- The current sample run now produces Oracle-oriented files, but the output path and validation contract are still loose
 - The example needs grounded, inspectable validation, but success should still depend on whether the validator judges the stage goal met rather than on rigid file checklists
 
 What to implement:
 
 - Add explicit workflow conventions for the example input at `data/example/migration-clean/input`
-- Make the execution path read the example SQL files and produce Oracle-compatible output artifacts and output files instead of generic stage notes
+- Make the execution path read the example SQL files and produce Oracle-compatible output artifacts and output files in a deterministic example output location instead of model-chosen paths
 - Strengthen prompt and validation guidance so the validator inspects produced outputs, persisted artifacts, progress, and request context before deciding whether the validation goal is met
 - Ensure the final outputs are easy to inspect after the run
 
@@ -180,6 +182,7 @@ Definition of done:
 - Running the CLI against the SQL migration sample produces Oracle-oriented outputs derived from the checked-in input files
 - Validation remains goal-based and is grounded in inspectable evidence gathered by the validator from produced files and persisted context
 - Tests cover the example path and the validator's grounded inspection behavior
+- Remaining gap: the current implementation writes Oracle outputs under `oracle/` rather than a canonical checked output directory, and validation evidence still needs tightening
 
 ### 5. Prove the live model-backed runner end to end
 
@@ -321,6 +324,7 @@ This order still preserves momentum while keeping risk low. The runtime is now w
 - Goal-based LLM evaluation can become too permissive or too strict if the evaluator prompt and evidence set are weak
 - Without stage-scoped message metadata, evaluator context may include more session history than ideal
 - Allowing planner read access to shell commands requires clear read-only expectations and future command-policy hardening
+- Historical tool outputs are currently propagated as system context for compatibility with LangChain message conversion, which is sufficient for continuity but weaker than a richer structured replay model
 - A workflow config that defines stages and goals well is now more important because it becomes part of the runtime contract rather than passive metadata
 - Postgres schema updates are not versioned today; `create_all()` is sufficient for fresh databases but not for upgrading durable environments
 - A generic scaffold pipeline can appear healthy while still failing the product need for a concrete end-to-end example
