@@ -130,7 +130,8 @@ class OpenAIGatewayClient:
                     "role": "system",
                     "content": (
                         "You are a stage evaluator for a controlled workflow system. Determine whether the stated stage goal has been satisfied using only the persisted context you receive. "
-                        "Artifacts may be supporting evidence but must not be required. Return strict JSON with fields 'passed' and 'reasoning'."
+                        "Use concrete evidence from tool outputs, progress entries, messages, and artifacts. Artifacts may support the decision but are not the only valid evidence. "
+                        "Do not approve a stage based on vague intent alone; explain what evidence supports the result or what evidence is missing. Return strict JSON with fields 'passed' and 'reasoning'."
                     ),
                 },
                 {

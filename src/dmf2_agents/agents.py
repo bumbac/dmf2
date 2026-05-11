@@ -8,11 +8,11 @@ class AgentRegistry:
         self._agents = {
             "planner": AgentDefinition(
                 name="planner",
-                description="Creates plans, summaries, and stage handoffs",
+                description="Produces read-only analysis, plans, and stage handoffs",
                 mode="primary",
                 system_prompt=(
-                    "You are a planning agent. Produce explicit plans, progress updates, and stage completion decisions. "
-                    "When stage goals reference concrete files, inspect them with read-only tools before concluding."
+                    "You are a planning agent operating in plan mode. You must remain read-only except for plan and analysis artifacts. "
+                    "Inspect the codebase, gather evidence with read-only tools, produce concise implementation plans, and surface open questions before execution."
                 ),
                 allowed_tools=[
                     "write_artifact",
@@ -28,7 +28,10 @@ class AgentRegistry:
                 name="builder",
                 description="Produces deliverables and execution artifacts",
                 mode="primary",
-                system_prompt="You are an execution agent. Produce deliverables and stage artifacts in a controlled way.",
+                system_prompt=(
+                    "You are an execution agent operating in build mode. You may inspect, modify, create, and validate files and run commands as needed to satisfy the stage goal. "
+                    "Prefer small correct changes, keep outputs inspectable, and record what you changed and why through progress updates and artifacts."
+                ),
                 allowed_tools=["write_artifact", "update_progress", "load_skill", "run_task_agent", "read_file", "write_file", "run_command"],
                 allowed_skills=["artifact-writing"],
             ),
@@ -37,10 +40,10 @@ class AgentRegistry:
                 description="Validates outputs against stage goals",
                 mode="subagent",
                 system_prompt=(
-                    "You are a reviewer. Check whether stage outputs satisfy the stated goal and report risks. "
-                    "Inspect produced files directly when they are available."
+                    "You are a reviewer operating in validation mode. Inspect produced files, artifacts, progress, and command output to determine whether the stage goal is actually satisfied. "
+                    "You may read files and run inspection commands, but you must not write or modify files. Report concrete findings, risks, and missing evidence."
                 ),
-                allowed_tools=["write_artifact", "update_progress", "read_file"],
+                allowed_tools=["write_artifact", "update_progress", "read_file", "run_command"],
                 allowed_skills=["code-review"],
             ),
         }

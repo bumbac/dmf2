@@ -329,6 +329,51 @@ async def test_runner_reviewer_can_read_files_for_validation(project_root: Path)
 
 
 @pytest.mark.anyio
+async def test_runner_reviewer_can_run_commands_but_not_write_files(project_root: Path) -> None:
+    runner, repo, _ = build_repository_runner(
+        project_root,
+        SequenceProvider(
+            [
+                AgentDecision(
+                    response="inspecting outputs",
+                    tool_calls=[ToolCallDecision(tool_name="run_command", arguments={"command": ["pwd"]})],
+                ),
+                AgentDecision(response="reviewed", tool_calls=[]),
+            ]
+        ),
+    )
+    agent = AgentRegistry().get("reviewer")
+    assert agent is not None
+
+    outcome = await runner.run(
+        session_id="s-review",
+        stage=StageDefinition(id="validate", name="Validate", goal="Inspect outputs", assigned_agents=["reviewer"]),
+        agent=agent,
+        user_input="validate",
+    )
+
+    assert outcome.response == "reviewed"
+    assert any(message.role == "tool" and "tool 'run_command' result" in message.content for message in await repo.list_messages("s-review"))
+
+    denied_runner, _, _ = build_repository_runner(
+        project_root,
+        FakeProvider(
+            AgentDecision(
+                response="attempting write",
+                tool_calls=[ToolCallDecision(tool_name="write_file", arguments={"path": "tmp/out.txt", "content": "nope"})],
+            )
+        ),
+    )
+    with pytest.raises(PermissionError):
+        await denied_runner.run(
+            session_id="s-review-denied",
+            stage=StageDefinition(id="validate", name="Validate", goal="Do not write", assigned_agents=["reviewer"]),
+            agent=agent,
+            user_input="validate",
+        )
+
+
+@pytest.mark.anyio
 async def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> None:
     class TaskAwareProvider:
         def __init__(self):

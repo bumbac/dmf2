@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dmf2_agents.agents import AgentRegistry
-from dmf2_agents.domain import ArtifactRecord, PlanRecord, ProgressRecord, StageDefinition, SummaryRecord
+from dmf2_agents.domain import ArtifactRecord, MessageRecord, PlanRecord, ProgressRecord, StageDefinition, SummaryRecord
 from dmf2_agents.prompting import PromptBuilder
 from dmf2_agents.skills import SkillRegistry
 
@@ -28,6 +28,7 @@ def test_prompt_builder_includes_core_context(project_root) -> None:
             )
         ],
         skills=[skill] if skill else [],
+        messages=[MessageRecord(session_id="s1", role="tool", agent_name="planner", content="Stage 'discover' tool 'read_file' result: content")],
     )
     assert "summary" in prompt
     assert "plan" in prompt
@@ -36,3 +37,6 @@ def test_prompt_builder_includes_core_context(project_root) -> None:
     assert "This is a chunk describing the generated artifact output." in prompt
     assert "runtime/artifacts/s1/0001-note.md" in prompt
     assert "Use read_file" in prompt
+    assert "Plan Mode - System Reminder" in prompt
+    assert "Recent session messages:" in prompt
+    assert "Stage 'discover' tool 'read_file' result: content" in prompt

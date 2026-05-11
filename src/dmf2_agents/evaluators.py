@@ -65,22 +65,46 @@ class StageEvaluator:
             return await HumanConfirmationStageEvaluationClient(auto_approve=self.client.auto_approve).evaluate(
                 StageEvaluationContext(stage=stage, messages=[])
             )
+        all_progress = await self.memory.list_progress(session_id)
+        all_artifacts = await self.artifacts.list_artifacts(session_id)
         stage_messages = [
             ProviderMessage(role=message.role, content=message.content)
             for message in await self.repository.list_messages(session_id)
             if message.role in {"assistant", "tool", "user"}
         ]
+        prior_stage_progress = [
+            ProviderMessage(role="system", content=f"Earlier stage progress [{item.stage_id or 'session'}:{item.status}] {item.message}")
+            for item in all_progress
+            if item.stage_id and item.stage_id != stage.id
+        ]
         stage_progress = [
             ProviderMessage(role="system", content=f"Progress [{item.status}] {item.message}")
-            for item in await self.memory.list_progress(session_id)
+            for item in all_progress
             if item.stage_id == stage.id
+        ]
+        prior_stage_artifacts = [
+            ProviderMessage(
+                role="system",
+                content=(
+                    f"Earlier artifact [{item.stage_id or 'session'}:{item.kind}] {item.title}\n"
+                    f"Reference: {item.file_path or item.id}\n{item.content}"
+                ),
+            )
+            for item in all_artifacts
+            if item.stage_id and item.stage_id != stage.id
         ]
         stage_artifacts = [
-            ProviderMessage(role="system", content=f"Artifact [{item.kind}] {item.title}\n{item.content}")
-            for item in await self.artifacts.list_artifacts(session_id)
+            ProviderMessage(
+                role="system",
+                content=f"Artifact [{item.kind}] {item.title}\nReference: {item.file_path or item.id}\n{item.content}",
+            )
+            for item in all_artifacts
             if item.stage_id == stage.id
         ]
-        context = StageEvaluationContext(stage=stage, messages=[*stage_messages, *stage_progress, *stage_artifacts])
+        context = StageEvaluationContext(
+            stage=stage,
+            messages=[*prior_stage_progress, *prior_stage_artifacts, *stage_messages, *stage_progress, *stage_artifacts],
+        )
         if stage.evaluation_mode == "provider":
             provider = getattr(self.client, "provider", None)
             if provider is not None:

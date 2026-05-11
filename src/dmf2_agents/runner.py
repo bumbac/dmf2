@@ -30,6 +30,7 @@ class AgentRunner:
         plan = await self.memory.latest_plan(session_id)
         progress = await self.memory.list_progress(session_id)
         artifacts = await self.artifacts.list_artifacts(session_id)
+        messages_history = await self.memory.recent_messages(session_id, limit=24)
         loaded_skill_defs = []
         if agent.allowed_skills:
             loaded_skill_defs = [self.tools.skills.get(name) for name in agent.allowed_skills[:1] if self.tools.skills.get(name)]
@@ -41,6 +42,7 @@ class AgentRunner:
             progress=progress,
             artifacts=artifacts,
             skills=loaded_skill_defs,
+            messages=messages_history,
         )
         available_tools = self.tools.discover_for_agent(agent.name)
         tool_context = "\n".join(f"- {tool.name}: {tool.description}" for tool in available_tools) or "None"
@@ -51,6 +53,13 @@ class AgentRunner:
         messages = [
             ProviderMessage(role="user", content=f"{prompt}\n\nAvailable tools:\n{tool_context}\n\nUser input:\n{user_input}")
         ]
+        for record in messages_history:
+            if record.role not in {"system", "user", "assistant", "tool"}:
+                continue
+            if record.role == "tool":
+                messages.append(ProviderMessage(role="system", content=f"Historical tool output: {record.content}"))
+                continue
+            messages.append(ProviderMessage(role=record.role, content=record.content))
         response = ""
         for _ in range(agent.max_iterations):
             decision = await self.provider.decide(agent=agent, stage=stage, messages=messages, tools=available_tools)
@@ -71,7 +80,7 @@ class AgentRunner:
                     tool_result = self._format_tool_error(call.tool_name, call.arguments, exc)
                 else:
                     tool_actions.append({"tool": call.tool_name, "status": "completed"})
-                    tool_result = self._format_tool_result(call.tool_name, result)
+                    tool_result = self._format_tool_result(stage.id, call.tool_name, result)
                 await self.memory.append_message(
                     MessageRecord(session_id=session_id, role="tool", agent_name=agent.name, content=tool_result)
                 )
@@ -94,12 +103,12 @@ class AgentRunner:
             progress_updates=progress_updates,
         )
 
-    def _format_tool_result(self, tool_name: str, result: object) -> str:
+    def _format_tool_result(self, stage_id: str, tool_name: str, result: object) -> str:
         if hasattr(result, "model_dump"):
             payload = result.model_dump()
         else:
             payload = result
-        return f"Tool '{tool_name}' result: {payload}"
+        return f"Stage '{stage_id}' tool '{tool_name}' result: {payload}"
 
     def _format_tool_error(self, tool_name: str, arguments: dict[str, object], exc: Exception) -> str:
         return (

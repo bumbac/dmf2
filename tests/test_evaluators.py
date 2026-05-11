@@ -75,3 +75,37 @@ async def test_stage_evaluator_human_confirmation_auto_approves() -> None:
     assert result.passed is True
     assert result.source == "human_confirmation"
     assert "auto-approved" in result.reasoning
+
+
+@pytest.mark.anyio
+async def test_stage_evaluator_includes_prior_stage_evidence() -> None:
+    provider = FakeStageEvaluationProvider(
+        StageEvaluationDecision(passed=False, reasoning="Need more validation evidence.")
+    )
+    evaluator, repository, memory, artifacts = build_evaluator(ProviderStageEvaluationClient(provider))
+    stage = StageDefinition(id="validate", name="Validate", goal="Validate outputs", assigned_agents=["reviewer"])
+
+    await repository.add_message(MessageRecord(session_id="s1", role="assistant", agent_name="builder", content="Produced Oracle files"))
+    await memory.add_progress(
+        ProgressRecord(session_id="s1", stage_id="execute", agent_name="builder", status="completed", message="Wrote output/sql/oracle.sql")
+    )
+    await artifacts.write_artifact(
+        ArtifactRecord(
+            session_id="s1",
+            stage_id="execute",
+            author_agent="builder",
+            kind="migration_output",
+            title="Oracle SQL",
+            content="Created Oracle migration output.",
+            file_path="output/sql/oracle.sql",
+            storage_kind="file",
+        )
+    )
+
+    await evaluator.evaluate(session_id="s1", stage=stage)
+
+    assert len(provider.calls) == 1
+    messages = provider.calls[0]["messages"]
+    assert any("Earlier stage progress [execute:completed] Wrote output/sql/oracle.sql" in message.content for message in messages)
+    assert any("Earlier artifact [execute:migration_output] Oracle SQL" in message.content for message in messages)
+    assert any("Reference:" in message.content and "Oracle SQL" in message.content for message in messages)
