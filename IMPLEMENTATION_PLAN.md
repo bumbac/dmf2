@@ -46,7 +46,7 @@ Implemented:
 - Agent registry with scoped tools in `src/dmf2_agents/agents.py`
 - Tool registry with permission checks in `src/dmf2_agents/tools.py`
 - Memory, artifact, and event services in `src/dmf2_agents/memory.py`, `src/dmf2_agents/artifacts.py`, and `src/dmf2_agents/events.py`
-- Prompt assembly from summary, plan, progress, artifacts, and skills in `src/dmf2_agents/prompting.py`
+- Prompt assembly from summary, plan, progress, artifacts, and skills in `src/dmf2_agents/prompting.py`, including structured artifact references and load hints
 - LangGraph stage loop in `src/dmf2_agents/orchestrator.py`
 - Stage evaluator service in `src/dmf2_agents/evaluators.py`
 - Provider abstraction with a LangChain-based Azure OpenAI adapter in `src/dmf2_agents/providers.py`
@@ -60,6 +60,7 @@ Implemented:
 - Planner read-only analysis permissions for file reads and shell commands
 - Live Azure tool-calling compatibility fixes for multi-turn tool replay and strict tool schemas
 - Workflow-defined agent assignment with arbitrary stage names and no stage-role coupling in agent definitions
+- Artifact persistence to PostgreSQL plus file-backed copies under `runtime/artifacts/**`, with persisted `file_path` references and `storage_kind`
 - Explicit fake-provider-based tests instead of a checked-in stub runtime backend
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
@@ -70,6 +71,7 @@ Implemented but intentionally simplified:
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
 - Stage evaluation is now routed through an evaluator service and can use provider-based judgment, but the evaluator evidence and prompt are still too permissive for the migration workflow
+- Artifact prompts now expose title, content, file reference, and a load hint, but artifact authoring conventions such as chunk labeling are still guided by prompt instructions rather than enforced by tool schema
 - The checked-in SQL migration example can be invoked through the CLI and the agents do inspect the checked-in input files, but the workflow still tends to stall before writing Oracle migration outputs and validation artifacts
 
 Not yet implemented:
@@ -82,6 +84,7 @@ Not yet implemented:
 - A strict output contract and validation artifact flow for the SQL-to-Oracle example
 - Evaluator evidence and prompts strong enough to reject stages that only inspect files without producing required deliverables
 - Output file conventions for generated example results
+- A dedicated artifact-loading tool or richer artifact retrieval API beyond persisted file references in prompt context
 
 ## Next Steps
 

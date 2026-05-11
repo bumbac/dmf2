@@ -121,6 +121,9 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - Artifacts must be first-class outputs with type, title, content, author, stage, and version
 - Artifact versioning must be supported
 - Artifacts must be accessible to later stages and subagents
+- Artifact metadata and content must be durably persisted in PostgreSQL
+- Artifacts must also be materialized to persistent runtime files so operators and later stages can inspect full payloads outside the database
+- Artifact records should include a retrieval reference such as a persisted file path
 
 ### Events And Observability
 
@@ -138,6 +141,8 @@ Implemented now:
 - Agent registry, stage registry, skill registry, and tool registry
 - Prompt builder that includes summary, plan, progress, artifacts, and skills
 - Artifact, progress, and event persistence
+- File-backed artifact persistence under `runtime/artifacts/**` alongside PostgreSQL artifact records
+- Structured artifact prompt formatting with title, content, persisted reference, and load hint
 - CLI entrypoint for running a session with runtime workflow selection
 - Child task sessions with parent-child linkage using the durable session model
 - Explicit stage evaluator service wired into orchestration
@@ -157,6 +162,7 @@ Partially implemented:
 - Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
 - Stage completion now uses an explicit evaluator and can be provider-backed, but evaluator evidence is still too permissive for workflows that require concrete deliverables
 - A CLI session can be run end to end against the sample SQL migration prompt, and agents inspect the checked-in SQL inputs, but the sample still does not reliably produce Oracle migration deliverables or a validation report
+- Artifact prompting now exposes persisted references, but artifact authoring is still only guided by prompts rather than enforced by a stricter tool schema for chunk labeling or summary structure
 
 Not yet implemented:
 
@@ -166,6 +172,7 @@ Not yet implemented:
 - A reliable file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
 - A strict output contract, output file conventions, and validation rules for end-to-end example runs
 - Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables instead of generic notes
+- A dedicated artifact-loading tool or richer artifact retrieval API beyond file-path references rendered in prompts
 
 ## Architecture Requirements
 
@@ -214,6 +221,7 @@ Implementation note for the first real example milestone:
 - The first end-to-end example should be treated as a product requirement, not just a demo prompt
 - The example should have explicit input discovery, output location, and validation expectations so success does not depend on generic stage notes
 - The live-model path should reuse the same stages, artifacts, and output contract as the general runtime path
+- Artifacts now persist both in PostgreSQL and as runtime files, so the example contract should treat artifact file references as part of the inspectable output surface
 
 ## Open Questions
 
