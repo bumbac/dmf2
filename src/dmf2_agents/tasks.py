@@ -23,7 +23,7 @@ class TaskService:
         self.agents = agents
         self.runner = runner
 
-    def run_subagent(
+    async def run_subagent(
         self,
         *,
         parent_session_id: str,
@@ -34,16 +34,16 @@ class TaskService:
         agent = self.agents.get(subagent_name)
         if agent is None:
             raise ValueError(f"unknown subagent: {subagent_name}")
-        child = self.repository.create_session(
+        child = await self.repository.create_session(
             SessionRecord(
                 title=f"Task: {subagent_name} for {stage.id}",
                 parent_session_id=parent_session_id,
             )
         )
-        self.memory.append_message(MessageRecord(session_id=child.id, role="user", content=prompt))
-        outcome = self.runner.run(session_id=child.id, stage=stage, agent=agent, user_input=prompt)
-        summary = self.memory.update_summary(child.id)
-        self.repository.update_session_status(child.id, "completed")
+        await self.memory.append_message(MessageRecord(session_id=child.id, role="user", content=prompt))
+        outcome = await self.runner.run(session_id=child.id, stage=stage, agent=agent, user_input=prompt)
+        summary = await self.memory.update_summary(child.id)
+        await self.repository.update_session_status(child.id, "completed")
         return TaskResult(
             task_id=child.id,
             status="completed",

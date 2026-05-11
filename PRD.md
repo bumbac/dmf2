@@ -66,6 +66,7 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - The system must create a durable session for each request
 - The system must persist messages, summaries, plans, progress, artifacts, and events
 - The system should support parent-child session lineage for task delegation
+- The system must provide a versioned schema migration path for PostgreSQL so existing databases can be upgraded when persistence models change
 
 ### Stage Orchestration
 
@@ -163,12 +164,14 @@ Partially implemented:
 - Stage completion now uses an explicit evaluator and can be provider-backed, but evaluator evidence is still too permissive for workflows that require concrete deliverables
 - A CLI session can be run end to end against the sample SQL migration prompt, and agents inspect the checked-in SQL inputs, but the sample still does not reliably produce Oracle migration deliverables or a validation report
 - Artifact prompting now exposes persisted references, but artifact authoring is still only guided by prompts rather than enforced by a stricter tool schema for chunk labeling or summary structure
+- Schema creation currently depends on `create_all()` for fresh databases, but there is no migration mechanism for upgrading existing PostgreSQL deployments
 
 Not yet implemented:
 
 - HTTP API and event streaming
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
+- Versioned database migrations and operator guidance for applying them to existing PostgreSQL databases
 - A reliable file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
 - A strict output contract, output file conventions, and validation rules for end-to-end example runs
 - Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables instead of generic notes
@@ -181,6 +184,7 @@ Not yet implemented:
 - Tools, skills, memory, artifacts, events, and storage must remain separate services
 - Shared state must be explicit and persisted
 - PostgreSQL must be the primary durable store
+- PostgreSQL schema evolution must be handled through versioned migrations rather than relying on table creation alone
 
 ## Acceptance Criteria For Next Milestone
 
@@ -215,6 +219,12 @@ Implementation note for the live-model milestone:
 - Provider adapters may use structured output and tool-calling features, but must return normalized decisions rather than execute tools directly
 - The model integration layer should be shaped like a swappable gateway client so model names, endpoints, and runtime parameters can change without changing orchestration code
 - The current live-model implementation uses `langchain-openai` with Azure OpenAI and must preserve normalized decisions and tool-call replay semantics at the provider boundary
+
+Implementation note for the next persistence milestone:
+
+- The runtime currently creates missing tables at startup, but that is not sufficient for upgrading existing databases after schema changes
+- A migration toolchain should become the source of truth for schema evolution in durable PostgreSQL environments
+- Artifact persistence changes such as `storage_kind` and `file_path` must be represented as explicit versioned migrations rather than implicit model drift
 
 Implementation note for the first real example milestone:
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Protocol
 
@@ -49,7 +50,7 @@ class GatewayConfig(BaseModel):
 
 
 class ProviderClient(Protocol):
-    def decide(
+    async def decide(
         self,
         *,
         agent: AgentDefinition,
@@ -60,7 +61,7 @@ class ProviderClient(Protocol):
 
 
 class StageEvaluationProvider(Protocol):
-    def evaluate_stage(
+    async def evaluate_stage(
         self,
         *,
         stage: StageDefinition,
@@ -69,9 +70,9 @@ class StageEvaluationProvider(Protocol):
 
 
 class GatewayClient(Protocol):
-    def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any: ...
+    async def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any: ...
 
-    def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any: ...
+    async def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any: ...
 
 
 class OpenAIGatewayClient:
@@ -90,9 +91,10 @@ class OpenAIGatewayClient:
             max_tokens=config.max_tokens,
         )
 
-    def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any:
+    async def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]) -> Any:
         client = self.client.bind_tools([self._tool_payload(tool) for tool in tools], tool_choice="auto")
-        return client.invoke(
+        return await asyncio.to_thread(
+            client.invoke,
             [
                 {
                     "role": "system",
@@ -107,21 +109,22 @@ class OpenAIGatewayClient:
                 "type": "json_schema",
                 "json_schema": {
                     "name": "agent_decision",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "response": {"type": "string"},
-                            },
-                            "required": ["response"],
-                            "additionalProperties": False,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "response": {"type": "string"},
                         },
+                        "required": ["response"],
+                        "additionalProperties": False,
+                    },
                     "strict": True,
                 },
             },
         )
 
-    def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any:
-        return self.client.invoke(
+    async def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any:
+        return await asyncio.to_thread(
+            self.client.invoke,
             [
                 {
                     "role": "system",
@@ -259,7 +262,7 @@ class GatewayProvider:
     def __init__(self, client: GatewayClient):
         self.client = client
 
-    def decide(
+    async def decide(
         self,
         *,
         agent: AgentDefinition,
@@ -267,7 +270,7 @@ class GatewayProvider:
         messages: list[ProviderMessage],
         tools: list[ToolDefinition],
     ) -> AgentDecision:
-        completion = self.client.create_response(messages=messages, tools=tools)
+        completion = await self.client.create_response(messages=messages, tools=tools)
         payload = self._extract_payload(completion, context="decision")
         tool_calls: list[ToolCallDecision] = []
         for tool_call in self._extract_tool_calls(completion):
@@ -278,13 +281,13 @@ class GatewayProvider:
         except ValidationError as exc:  # pragma: no cover
             raise ValueError(f"provider decision failed validation: {exc}") from exc
 
-    def evaluate_stage(
+    async def evaluate_stage(
         self,
         *,
         stage: StageDefinition,
         messages: list[ProviderMessage],
     ) -> StageEvaluationDecision:
-        completion = self.client.create_stage_evaluation_response(stage=stage, messages=messages)
+        completion = await self.client.create_stage_evaluation_response(stage=stage, messages=messages)
         payload = self._extract_payload(completion, context="stage evaluation")
         try:
             return StageEvaluationDecision.model_validate(payload)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ from .skills import SkillRegistry
 
 
 class TaskExecutor:
-    def run_subagent(
+    async def run_subagent(
         self,
         *,
         parent_session_id: str,
@@ -66,10 +67,10 @@ class ToolRegistry:
     def discover_for_agent(self, agent_name: str) -> list[ToolDefinition]:
         return [ToolDefinition(name=name, description=desc) for name, desc in self._descriptions().items() if name in self.permission.agent_tools.get(agent_name, set())]
 
-    def run(self, agent_name: str, tool_name: str, ctx: ToolContext, **kwargs: Any) -> Any:
+    async def run(self, agent_name: str, tool_name: str, ctx: ToolContext, **kwargs: Any) -> Any:
         self.permission.ensure(agent_name, tool_name)
         handler = getattr(self, f"tool_{tool_name}")
-        return handler(ctx, **kwargs)
+        return await handler(ctx, **kwargs)
 
     def _descriptions(self) -> dict[str, str]:
         return {
@@ -82,20 +83,20 @@ class ToolRegistry:
             "run_task_agent": "Run a subagent in an independent task session.",
         }
 
-    def tool_read_file(self, ctx: ToolContext, path: str) -> str:
-        return (self.root / path).read_text()
+    async def tool_read_file(self, ctx: ToolContext, path: str) -> str:
+        return await asyncio.to_thread((self.root / path).read_text)
 
-    def tool_write_file(self, ctx: ToolContext, path: str, content: str) -> str:
+    async def tool_write_file(self, ctx: ToolContext, path: str, content: str) -> str:
         target = self.root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
+        await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(target.write_text, content)
         return str(target)
 
-    def tool_run_command(self, ctx: ToolContext, command: list[str]) -> dict[str, Any]:
-        proc = subprocess.run(command, cwd=self.root, capture_output=True, text=True, check=False)
+    async def tool_run_command(self, ctx: ToolContext, command: list[str]) -> dict[str, Any]:
+        proc = await asyncio.to_thread(subprocess.run, command, cwd=self.root, capture_output=True, text=True, check=False)
         return {"returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
 
-    def tool_write_artifact(
+    async def tool_write_artifact(
         self,
         ctx: ToolContext,
         kind: str,
@@ -103,7 +104,7 @@ class ToolRegistry:
         content: str,
         **_: Any,
     ) -> str:
-        record = self.artifacts.write_artifact(
+        record = await self.artifacts.write_artifact(
             ArtifactRecord(
                 session_id=ctx.session_id,
                 stage_id=ctx.stage_id,
@@ -115,8 +116,8 @@ class ToolRegistry:
         )
         return record.id
 
-    def tool_update_progress(self, ctx: ToolContext, message: str, status: str = "in_progress") -> str:
-        record = self.memory.add_progress(
+    async def tool_update_progress(self, ctx: ToolContext, message: str, status: str = "in_progress") -> str:
+        record = await self.memory.add_progress(
             ProgressRecord(
                 session_id=ctx.session_id,
                 stage_id=ctx.stage_id,
@@ -127,18 +128,18 @@ class ToolRegistry:
         )
         return record.id
 
-    def tool_load_skill(self, ctx: ToolContext, skill_name: str) -> str:
+    async def tool_load_skill(self, ctx: ToolContext, skill_name: str) -> str:
         skill = self.skills.get(skill_name)
         if skill is None:
             raise ValueError(f"unknown skill: {skill_name}")
         return skill.content
 
-    def tool_run_task_agent(self, ctx: ToolContext, subagent_name: str, prompt: str) -> TaskResult:
+    async def tool_run_task_agent(self, ctx: ToolContext, subagent_name: str, prompt: str) -> TaskResult:
         if self.task_executor is None:
             raise RuntimeError("task executor is not configured")
         if ctx.stage is None:
             raise ValueError("task execution requires the current stage definition")
-        return self.task_executor.run_subagent(
+        return await self.task_executor.run_subagent(
             parent_session_id=ctx.session_id,
             stage=ctx.stage,
             subagent_name=subagent_name,

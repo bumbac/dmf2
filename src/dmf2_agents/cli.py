@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import argparse
 from pathlib import Path
 
@@ -12,5 +13,5 @@ def main() -> None:
     parser.add_argument("--workflow", type=Path, help="Path to the workflow configuration file")
     args = parser.parse_args()
     app = build_app(workflow_path=args.workflow)
-    session_id = app.run(args.prompt)
+    session_id = asyncio.run(app.run(args.prompt))
     print(session_id)

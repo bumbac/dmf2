@@ -4,6 +4,8 @@ from contextlib import contextmanager
 from typing import Iterator
 
 from sqlalchemy import JSON, DateTime, Integer, String, Text, create_engine
+from sqlalchemy.engine import make_url
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -91,7 +93,13 @@ class EventTable(Base):
 
 class Database:
     def __init__(self, database_url: str):
-        self.engine = create_engine(database_url, future=True)
+        engine_kwargs: dict[str, object] = {"future": True}
+        url = make_url(database_url)
+        if url.get_backend_name() == "sqlite":
+            engine_kwargs["connect_args"] = {"check_same_thread": False}
+            if url.database in {None, "", ":memory:"}:
+                engine_kwargs["poolclass"] = StaticPool
+        self.engine = create_engine(database_url, **engine_kwargs)
         self._session_factory = sessionmaker(self.engine, expire_on_commit=False)
 
     def create_all(self) -> None:

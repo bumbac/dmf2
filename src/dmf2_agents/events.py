@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 from .domain import EventRecord
@@ -14,8 +15,8 @@ class EventBus:
     def subscribe(self, callback: Callable[[EventRecord], None]) -> None:
         self._subscribers.append(callback)
 
-    def publish(self, event: EventRecord) -> EventRecord:
-        self.repository.add_event(event)
+    async def publish(self, event: EventRecord) -> EventRecord:
+        await self.repository.add_event(event)
         for callback in self._subscribers:
-            callback(event)
+            await asyncio.to_thread(callback, event)
         return event

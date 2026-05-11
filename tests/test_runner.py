@@ -22,7 +22,7 @@ class FakeProvider:
     def __init__(self, decision: AgentDecision):
         self.decision = decision
 
-    def decide(self, **kwargs) -> AgentDecision:
+    async def decide(self, **kwargs) -> AgentDecision:
         return self.decision
 
 
@@ -32,7 +32,7 @@ class SequenceProvider:
         self.index = 0
         self.calls: list[dict[str, object]] = []
 
-    def decide(self, **kwargs) -> AgentDecision:
+    async def decide(self, **kwargs) -> AgentDecision:
         self.calls.append(kwargs)
         if self.index >= len(self.decisions):
             return self.decisions[-1]
@@ -89,7 +89,8 @@ def build_repository_runner(project_root: Path, provider) -> tuple[AgentRunner, 
     return runner, repo, tools
 
 
-def test_runner_executes_provider_tool_calls(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_executes_provider_tool_calls(project_root: Path) -> None:
     runner, repo, _ = build_repository_runner(
         project_root,
         SequenceProvider(
@@ -111,17 +112,18 @@ def test_runner_executes_provider_tool_calls(project_root: Path) -> None:
     stage = StageDefinition(id="discover", name="Discover", goal="Understand", assigned_agents=["planner"])
     agent = AgentRegistry().get("planner")
     assert agent is not None
-    outcome = runner.run(session_id="s1", stage=stage, agent=agent, user_input="hello")
+    outcome = await runner.run(session_id="s1", stage=stage, agent=agent, user_input="hello")
     assert outcome.response == "done"
     assert outcome.progress_updates == ["working"]
     assert len(outcome.artifacts) == 1
-    assert repo.list_progress("s1")[0].message == "working"
-    assert repo.list_artifacts("s1")[0].kind == "discover_note"
-    messages = repo.list_messages("s1")
+    assert (await repo.list_progress("s1"))[0].message == "working"
+    assert (await repo.list_artifacts("s1"))[0].kind == "discover_note"
+    messages = await repo.list_messages("s1")
     assert [item.role for item in messages] == ["assistant", "tool", "tool", "assistant"]
 
 
-def test_runner_replays_tool_results_into_follow_up_provider_turn(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_replays_tool_results_into_follow_up_provider_turn(project_root: Path) -> None:
     runner, repo, _ = build_repository_runner(
         project_root,
         SequenceProvider(
@@ -143,7 +145,7 @@ def test_runner_replays_tool_results_into_follow_up_provider_turn(project_root: 
 
     agent = AgentRegistry().get("planner")
     assert agent is not None
-    outcome = runner.run(
+    outcome = await runner.run(
         session_id="s1",
         stage=StageDefinition(id="discover", name="Discover", goal="Understand", assigned_agents=["planner"]),
         agent=agent,
@@ -154,11 +156,12 @@ def test_runner_replays_tool_results_into_follow_up_provider_turn(project_root: 
     assert len(provider.calls) == 2
     second_call_messages = provider.calls[1]["messages"]
     assert any(message.role == "tool" and "update_progress" in message.content for message in second_call_messages)
-    stored_messages = repo.list_messages("s1")
+    stored_messages = await repo.list_messages("s1")
     assert [item.role for item in stored_messages] == ["assistant", "tool", "assistant"]
 
 
-def test_runner_stops_at_agent_iteration_limit(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_stops_at_agent_iteration_limit(project_root: Path) -> None:
     runner, repo, _ = build_repository_runner(
         project_root,
         SequenceProvider(
@@ -186,7 +189,7 @@ def test_runner_stops_at_agent_iteration_limit(project_root: Path) -> None:
     )
     provider = runner.provider
 
-    outcome = runner.run(
+    outcome = await runner.run(
         session_id="s1",
         stage=StageDefinition(id="discover", name="Discover", goal="Understand", assigned_agents=["planner"]),
         agent=AgentDefinition(
@@ -201,10 +204,11 @@ def test_runner_stops_at_agent_iteration_limit(project_root: Path) -> None:
 
     assert outcome.response.endswith("Iteration limit reached.")
     assert len(provider.calls) == 1
-    assert [item.message for item in repo.list_progress("s1")] == ["step 1"]
+    assert [item.message for item in await repo.list_progress("s1")] == ["step 1"]
 
 
-def test_runner_denied_tool_call_raises(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_denied_tool_call_raises(project_root: Path) -> None:
     database = Database("sqlite+pysqlite:///:memory:")
     database.create_all()
     repo = Repository(database)
@@ -230,7 +234,7 @@ def test_runner_denied_tool_call_raises(project_root: Path) -> None:
         ),
     )
     with pytest.raises(PermissionError):
-        runner.run(
+        await runner.run(
             session_id="s1",
             stage=StageDefinition(id="execute", name="Execute", goal="Build", assigned_agents=["planner"]),
             agent=AgentDefinition(
@@ -243,7 +247,8 @@ def test_runner_denied_tool_call_raises(project_root: Path) -> None:
         )
 
 
-def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None:
     runner, repo, _ = build_repository_runner(
         project_root,
         SequenceProvider(
@@ -259,7 +264,7 @@ def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None
     agent = AgentRegistry().get("planner")
     assert agent is not None
 
-    outcome = runner.run(
+    outcome = await runner.run(
         session_id="s1",
         stage=StageDefinition(id="discover", name="Discover", goal="Inspect the workflow file", assigned_agents=["planner"]),
         agent=agent,
@@ -267,7 +272,7 @@ def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None
     )
 
     assert outcome.response == "done"
-    stored_messages = repo.list_messages("s1")
+    stored_messages = await repo.list_messages("s1")
     assert any(message.role == "tool" and "stages:" in message.content for message in stored_messages)
 
     denied_runner, _, _ = build_repository_runner(
@@ -280,7 +285,7 @@ def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None
         ),
     )
     with pytest.raises(PermissionError):
-        denied_runner.run(
+        await denied_runner.run(
             session_id="s2",
             stage=StageDefinition(id="discover", name="Discover", goal="Do not write", assigned_agents=["planner"]),
             agent=agent,
@@ -288,7 +293,8 @@ def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None
         )
 
 
-def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> None:
     runner, repo, _ = build_repository_runner(
         project_root,
         SequenceProvider(
@@ -310,7 +316,7 @@ def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> No
     agent = AgentRegistry().get("reviewer")
     assert agent is not None
 
-    outcome = runner.run(
+    outcome = await runner.run(
         session_id="s1",
         stage=StageDefinition(id="validate", name="Validate", goal="Inspect generated outputs", assigned_agents=["reviewer"]),
         agent=agent,
@@ -318,17 +324,18 @@ def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> No
     )
 
     assert outcome.response == "validated"
-    assert repo.list_artifacts("s1")[0].kind == "validation_report"
-    assert any(message.role == "tool" and "Discover Migration Inputs" in message.content for message in repo.list_messages("s1"))
+    assert (await repo.list_artifacts("s1"))[0].kind == "validation_report"
+    assert any(message.role == "tool" and "Discover Migration Inputs" in message.content for message in await repo.list_messages("s1"))
 
 
-def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> None:
     class TaskAwareProvider:
         def __init__(self):
             self.parent_calls = 0
             self.child_calls = 0
 
-        def decide(self, **kwargs) -> AgentDecision:
+        async def decide(self, **kwargs) -> AgentDecision:
             session_messages = kwargs["messages"]
             user_prompt = session_messages[0].content
             if "Review the current stage artifacts." in user_prompt:
@@ -367,23 +374,23 @@ def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> 
     stage = StageDefinition(id="validate", name="Validate", goal="Validate outputs", assigned_agents=["reviewer"])
     agent = AgentRegistry().get("planner")
     assert agent is not None
-    outcome = runner.run(session_id="parent-session", stage=stage, agent=agent, user_input="start validation")
-    children = repo.list_child_sessions("parent-session")
+    outcome = await runner.run(session_id="parent-session", stage=stage, agent=agent, user_input="start validation")
+    children = await repo.list_child_sessions("parent-session")
     assert len(children) == 1
     child = children[0]
-    child_messages = repo.list_messages(child.id)
+    child_messages = await repo.list_messages(child.id)
     assert child_messages[0].role == "user"
     assert "Review the current stage artifacts." in child_messages[0].content
     assert child_messages[-1].role == "assistant"
     assert child.status == "completed"
     assert child.title == "Task: reviewer for validate"
-    child_summary = repo.latest_summary(child.id)
+    child_summary = await repo.latest_summary(child.id)
     assert child_summary is not None
     assert "review finalized" in child_summary.content
-    child_artifacts = repo.list_artifacts(child.id)
+    child_artifacts = await repo.list_artifacts(child.id)
     assert len(child_artifacts) == 1
     assert child_artifacts[0].kind == "review_report"
-    parent_artifacts = repo.list_artifacts("parent-session")
+    parent_artifacts = await repo.list_artifacts("parent-session")
     assert len(parent_artifacts) == 1
     assert parent_artifacts[0].title == "Review"
     assert "review finalized" in outcome.response

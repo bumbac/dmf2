@@ -25,11 +25,11 @@ class AgentRunner:
         self.prompt_builder = prompt_builder
         self.provider = provider
 
-    def run(self, *, session_id: str, stage, agent: AgentDefinition, user_input: str) -> AgentOutcome:
-        summary = self.memory.latest_summary(session_id)
-        plan = self.memory.latest_plan(session_id)
-        progress = self.memory.list_progress(session_id)
-        artifacts = self.artifacts.list_artifacts(session_id)
+    async def run(self, *, session_id: str, stage, agent: AgentDefinition, user_input: str) -> AgentOutcome:
+        summary = await self.memory.latest_summary(session_id)
+        plan = await self.memory.latest_plan(session_id)
+        progress = await self.memory.list_progress(session_id)
+        artifacts = await self.artifacts.list_artifacts(session_id)
         loaded_skill_defs = []
         if agent.allowed_skills:
             loaded_skill_defs = [self.tools.skills.get(name) for name in agent.allowed_skills[:1] if self.tools.skills.get(name)]
@@ -53,8 +53,8 @@ class AgentRunner:
         ]
         response = ""
         for _ in range(agent.max_iterations):
-            decision = self.provider.decide(agent=agent, stage=stage, messages=messages, tools=available_tools)
-            self.memory.append_message(
+            decision = await self.provider.decide(agent=agent, stage=stage, messages=messages, tools=available_tools)
+            await self.memory.append_message(
                 MessageRecord(session_id=session_id, role="assistant", agent_name=agent.name, content=decision.response)
             )
             messages.append(ProviderMessage(role="assistant", content=decision.response, tool_calls=decision.tool_calls))
@@ -63,7 +63,7 @@ class AgentRunner:
                 break
             for call in decision.tool_calls:
                 try:
-                    result = self.tools.run(agent.name, call.tool_name, ctx, **call.arguments)
+                    result = await self.tools.run(agent.name, call.tool_name, ctx, **call.arguments)
                 except PermissionError:
                     raise
                 except Exception as exc:
@@ -72,7 +72,7 @@ class AgentRunner:
                 else:
                     tool_actions.append({"tool": call.tool_name, "status": "completed"})
                     tool_result = self._format_tool_result(call.tool_name, result)
-                self.memory.append_message(
+                await self.memory.append_message(
                     MessageRecord(session_id=session_id, role="tool", agent_name=agent.name, content=tool_result)
                 )
                 messages.append(ProviderMessage(role="tool", content=tool_result, tool_call_id=call.id, tool_name=call.tool_name))

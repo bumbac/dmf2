@@ -72,11 +72,11 @@ class SessionOrchestrator:
         )
         return graph.compile()
 
-    def run(self, user_input: str) -> str:
-        session = self.repository.create_session(SessionRecord(title=user_input[:80] or "session"))
-        self.memory.append_message(MessageRecord(session_id=session.id, role="user", content=user_input))
-        self.memory.set_plan(session.id, self._build_plan(user_input))
-        self.events.publish(EventRecord(session_id=session.id, event_type="session.started", payload={"title": session.title}))
+    async def run(self, user_input: str) -> str:
+        session = await self.repository.create_session(SessionRecord(title=user_input[:80] or "session"))
+        await self.memory.append_message(MessageRecord(session_id=session.id, role="user", content=user_input))
+        await self.memory.set_plan(session.id, self._build_plan(user_input))
+        await self.events.publish(EventRecord(session_id=session.id, event_type="session.started", payload={"title": session.title}))
         initial_state: GraphState = {
             "session_id": session.id,
             "user_input": user_input,
@@ -86,22 +86,22 @@ class SessionOrchestrator:
             "goal_reached": False,
             "halted": False,
         }
-        final_state = self.graph.invoke(initial_state)
-        self.memory.update_summary(session.id)
-        self.repository.update_session_status(session.id, "completed" if final_state["goal_reached"] else "failed")
-        self.events.publish(EventRecord(session_id=session.id, event_type="session.finished", payload=final_state))
+        final_state = await self.graph.ainvoke(initial_state)
+        await self.memory.update_summary(session.id)
+        await self.repository.update_session_status(session.id, "completed" if final_state["goal_reached"] else "failed")
+        await self.events.publish(EventRecord(session_id=session.id, event_type="session.finished", payload=final_state))
         return session.id
 
-    def _choose_stage(self, state: GraphState) -> GraphState:
+    async def _choose_stage(self, state: GraphState) -> GraphState:
         if not state["stage_queue"]:
             state["goal_reached"] = True
             return state
         stage_id = state["stage_queue"][0]
         state["current_stage_id"] = stage_id
-        self.events.publish(EventRecord(session_id=state["session_id"], event_type="stage.entered", payload={"stage_id": stage_id}))
+        await self.events.publish(EventRecord(session_id=state["session_id"], event_type="stage.entered", payload={"stage_id": stage_id}))
         return state
 
-    def _run_stage(self, state: GraphState) -> GraphState:
+    async def _run_stage(self, state: GraphState) -> GraphState:
         stage = self.stages.get(state["current_stage_id"] or "")
         if stage is None:
             state["halted"] = True
@@ -114,8 +114,8 @@ class SessionOrchestrator:
         attempts = dict(state["stage_attempts"])
         attempts[stage.id] = attempts.get(stage.id, 0) + 1
         state["stage_attempts"] = attempts
-        outcome = self.runner.run(session_id=state["session_id"], stage=stage, agent=agent, user_input=state["user_input"])
-        self.events.publish(
+        outcome = await self.runner.run(session_id=state["session_id"], stage=stage, agent=agent, user_input=state["user_input"])
+        await self.events.publish(
             EventRecord(
                 session_id=state["session_id"],
                 event_type="stage.progressed",
@@ -124,17 +124,17 @@ class SessionOrchestrator:
         )
         return state
 
-    def _evaluate(self, state: GraphState) -> GraphState:
+    async def _evaluate(self, state: GraphState) -> GraphState:
         if state["halted"]:
             return state
         stage = self.stages.get(state["current_stage_id"] or "")
         if stage is None:
             state["halted"] = True
             return state
-        evaluation = self.evaluator.evaluate(session_id=state["session_id"], stage=stage)
+        evaluation = await self.evaluator.evaluate(session_id=state["session_id"], stage=stage)
         if evaluation.passed:
             state["stage_queue"] = state["stage_queue"][1:]
-            self.events.publish(
+            await self.events.publish(
                 EventRecord(session_id=state["session_id"], event_type="stage.completed", payload={"stage_id": stage.id})
             )
         else:
@@ -148,11 +148,11 @@ class SessionOrchestrator:
             }
             if attempt >= stage.max_loops:
                 state["halted"] = True
-                self.events.publish(
+                await self.events.publish(
                     EventRecord(session_id=state["session_id"], event_type="stage.halted", payload=payload)
                 )
             else:
-                self.events.publish(
+                await self.events.publish(
                     EventRecord(session_id=state["session_id"], event_type="stage.retry_scheduled", payload=payload)
                 )
         if not state["stage_queue"]:

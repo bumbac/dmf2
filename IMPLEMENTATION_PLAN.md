@@ -85,6 +85,7 @@ Not yet implemented:
 - Evaluator evidence and prompts strong enough to reject stages that only inspect files without producing required deliverables
 - Output file conventions for generated example results
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond persisted file references in prompt context
+- A real schema migration path for existing PostgreSQL databases instead of relying on `create_all()` for fresh databases only
 
 ## Next Steps
 
@@ -201,6 +202,29 @@ Definition of done:
 - Existing tests remain green and additional coverage exists around provider decisions in runner and orchestration boundaries
 - Remaining gap: the live migration workflow still needs to satisfy a real deliverable contract rather than merely complete structurally
 
+### 5a. Add database schema migrations for durable environments
+
+Status: next
+
+Why:
+
+- The current bootstrap path calls `Base.metadata.create_all(...)`, which only creates missing tables for fresh databases
+- Existing PostgreSQL databases are not upgraded when ORM models change, which already caused runtime failures for new artifact columns such as `storage_kind` and `file_path`
+- Durable environments need an explicit, versioned schema migration path before more persistence changes land
+
+What to implement:
+
+- Introduce a real migration toolchain for the PostgreSQL schema, such as Alembic
+- Create a baseline migration for the current schema and a follow-up migration for the newer artifact storage columns
+- Document how operators apply migrations locally and in deployed environments
+- Stop relying on `create_all()` as the only schema-update mechanism for long-lived databases
+
+Definition of done:
+
+- An existing PostgreSQL database can be upgraded to the current schema without manual SQL edits
+- The runtime can start successfully against a migrated database that includes artifact file persistence columns
+- The repository includes versioned migration files and operator-facing usage instructions
+
 ### 6. Add a service API and event streaming surface
 
 Why:
@@ -279,10 +303,11 @@ Definition of done:
 3. Planner read-only analysis permissions
 4. Checked-in example workflow and strict output contract
 5. End-to-end live model validation against that contract
-6. HTTP API and event streaming
-7. Permission hardening
-8. Better summary and context compaction
-9. Resume behavior and lineage persistence
+6. Database schema migrations for durable environments
+7. HTTP API and event streaming
+8. Permission hardening
+9. Better summary and context compaction
+10. Resume behavior and lineage persistence
 
 This order still preserves momentum while keeping risk low. The runtime is now workflow-config-driven and goal-evaluated, so the next risk-reducing step is to make the checked-in example output-contract-driven before relying on the live path for product confidence.
 
@@ -296,7 +321,7 @@ This order still preserves momentum while keeping risk low. The runtime is now w
 - Without stage-scoped message metadata, evaluator context may include more session history than ideal
 - Allowing planner read access to shell commands requires clear read-only expectations and future command-policy hardening
 - A workflow config that defines stages and goals well is now more important because it becomes part of the runtime contract rather than passive metadata
-- Postgres schema is still minimal and may need migrations once stage runs and task lineage are introduced
+- Postgres schema updates are not versioned today; `create_all()` is sufficient for fresh databases but not for upgrading durable environments
 - A generic scaffold pipeline can appear healthy while still failing the product need for a concrete end-to-end example
 
 ## Testing Plan For Next Iterations

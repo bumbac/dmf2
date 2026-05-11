@@ -24,7 +24,8 @@ def test_settings_enable_azure_backend(monkeypatch: pytest.MonkeyPatch) -> None:
     assert provider_settings["model"] == "gpt-deployment"
 
 
-def test_gateway_provider_parses_structured_response(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_gateway_provider_parses_structured_response(project_root: Path) -> None:
     class FakeMessage:
         content = json.dumps({"response": "done"})
         tool_calls = [
@@ -48,7 +49,7 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
         choices = [FakeChoice()]
 
     class FakeGatewayClient:
-        def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
+        async def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
             return FakeCompletion()
 
     provider = GatewayProvider(FakeGatewayClient())
@@ -56,7 +57,7 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
     stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
     assert agent is not None
     assert stage is not None
-    decision = provider.decide(
+    decision = await provider.decide(
         agent=agent,
         stage=stage,
         messages=[ProviderMessage(role="user", content="prompt")],
@@ -69,7 +70,8 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
     ]
 
 
-def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> None:
     class FakeMessage:
         content = json.dumps({"response": "done"})
         tool_calls = [
@@ -93,7 +95,7 @@ def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> 
         choices = [FakeChoice()]
 
     class FakeGatewayClient:
-        def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
+        async def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
             return FakeCompletion()
 
     provider = GatewayProvider(FakeGatewayClient())
@@ -103,7 +105,7 @@ def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> 
     assert stage is not None
 
     with pytest.raises(ValueError, match="invalid JSON arguments"):
-        provider.decide(
+        await provider.decide(
             agent=agent,
             stage=stage,
             messages=[ProviderMessage(role="user", content="prompt")],
@@ -111,7 +113,8 @@ def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> 
         )
 
 
-def test_gateway_provider_parses_stage_evaluation_response(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_gateway_provider_parses_stage_evaluation_response(project_root: Path) -> None:
     class FakeMessage:
         content = json.dumps({"passed": True, "reasoning": "The stage goal is satisfied."})
         tool_calls = []
@@ -123,17 +126,17 @@ def test_gateway_provider_parses_stage_evaluation_response(project_root: Path) -
         choices = [FakeChoice()]
 
     class FakeGatewayClient:
-        def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
+        async def create_response(self, *, messages: list[ProviderMessage], tools: list[ToolDefinition]):
             raise AssertionError("agent response path should not be used for stage evaluation")
 
-        def create_stage_evaluation_response(self, *, stage, messages: list[ProviderMessage]):
+        async def create_stage_evaluation_response(self, *, stage, messages: list[ProviderMessage]):
             return FakeCompletion()
 
     provider = GatewayProvider(FakeGatewayClient())
     stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
     assert stage is not None
 
-    decision = provider.evaluate_stage(
+    decision = await provider.evaluate_stage(
         stage=stage,
         messages=[ProviderMessage(role="assistant", content="Persisted context")],
     )

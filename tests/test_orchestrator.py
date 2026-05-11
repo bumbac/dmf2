@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from dmf2_agents.agents import AgentRegistry
 from dmf2_agents.artifacts import ArtifactService
 from dmf2_agents.evaluators import StageEvaluator
@@ -23,7 +25,7 @@ class SequenceProvider(ProviderClient):
         self.decisions = decisions
         self.index = 0
 
-    def decide(self, **kwargs) -> AgentDecision:
+    async def decide(self, **kwargs) -> AgentDecision:
         if self.index >= len(self.decisions):
             return self.decisions[-1]
         decision = self.decisions[self.index]
@@ -36,7 +38,7 @@ class SequenceEvaluationClient:
         self.results = results
         self.index = 0
 
-    def evaluate(self, context):
+    async def evaluate(self, context):
         if self.index >= len(self.results):
             return self.results[-1]
         result = self.results[self.index]
@@ -81,7 +83,8 @@ def build_orchestrator(project_root: Path, workflow_path: Path, provider, evalua
     )
 
 
-def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
     app = build_orchestrator(
         project_root,
         project_root / "examples" / "pipeline.yaml",
@@ -111,13 +114,13 @@ def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
             ]
         ),
     )
-    session_id = app.run("Produce a staged implementation outline")
+    session_id = await app.run("Produce a staged implementation outline")
     assert session_id
-    plan = app.repository.latest_plan(session_id)
-    messages = app.repository.list_messages(session_id)
+    plan = await app.repository.latest_plan(session_id)
+    messages = await app.repository.list_messages(session_id)
     assert any(item.role == "assistant" for item in messages)
     assert any(item.role == "tool" for item in messages)
-    events = app.repository.list_events(session_id)
+    events = await app.repository.list_events(session_id)
     event_types = [item.event_type for item in events]
     assert plan is not None
     assert "Workflow Plan:" in plan.content
@@ -127,7 +130,8 @@ def test_session_orchestrator_runs_all_stages(project_root: Path) -> None:
     assert "session.finished" in event_types
 
 
-def test_orchestrator_retries_stage_until_provider_evaluation_passes(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_orchestrator_retries_stage_until_provider_evaluation_passes(project_root: Path) -> None:
     app = build_orchestrator(
         project_root,
         project_root / "examples" / "pipeline.yaml",
@@ -143,12 +147,12 @@ def test_orchestrator_retries_stage_until_provider_evaluation_passes(project_roo
         ),
     )
 
-    session_id = app.run("Produce a staged implementation outline")
+    session_id = await app.run("Produce a staged implementation outline")
 
-    events = app.repository.list_events(session_id)
+    events = await app.repository.list_events(session_id)
     event_types = [item.event_type for item in events]
     stage_progress = [item for item in events if item.event_type == "stage.progressed" and item.payload.get("stage_id") == "discover"]
-    session = app.repository.get_session(session_id)
+    session = await app.repository.get_session(session_id)
 
     assert session is not None
     assert session.status == "completed"
@@ -156,7 +160,8 @@ def test_orchestrator_retries_stage_until_provider_evaluation_passes(project_roo
     assert "stage.retry_scheduled" in event_types
 
 
-def test_orchestrator_halts_when_stage_exceeds_max_loops(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_orchestrator_halts_when_stage_exceeds_max_loops(project_root: Path) -> None:
     app = build_orchestrator(
         project_root,
         project_root / "examples" / "pipeline.yaml",
@@ -169,12 +174,12 @@ def test_orchestrator_halts_when_stage_exceeds_max_loops(project_root: Path) -> 
         ),
     )
 
-    session_id = app.run("Produce a staged implementation outline")
+    session_id = await app.run("Produce a staged implementation outline")
 
-    session = app.repository.get_session(session_id)
+    session = await app.repository.get_session(session_id)
     assert session is not None
     assert session.status == "failed"
-    events = app.repository.list_events(session_id)
+    events = await app.repository.list_events(session_id)
     event_types = [item.event_type for item in events]
     halted = [item for item in events if item.event_type == "stage.halted"]
     entered = [item.payload.get("stage_id") for item in events if item.event_type == "stage.entered"]
@@ -187,7 +192,8 @@ def test_orchestrator_halts_when_stage_exceeds_max_loops(project_root: Path) -> 
     assert set(entered) == {"discover"}
 
 
-def test_orchestrator_uses_workflow_agent_mapping_with_arbitrary_stage_names(project_root: Path) -> None:
+@pytest.mark.anyio
+async def test_orchestrator_uses_workflow_agent_mapping_with_arbitrary_stage_names(project_root: Path) -> None:
     app = build_orchestrator(
         project_root,
         project_root / "tests" / "fixtures" / "arbitrary_stage_names.yaml",
@@ -212,9 +218,9 @@ def test_orchestrator_uses_workflow_agent_mapping_with_arbitrary_stage_names(pro
         ),
     )
 
-    session_id = app.run("Do the work")
-    plan = app.repository.latest_plan(session_id)
-    events = app.repository.list_events(session_id)
+    session_id = await app.run("Do the work")
+    plan = await app.repository.latest_plan(session_id)
+    events = await app.repository.list_events(session_id)
 
     assert plan is not None
     assert "1. Scope The Work" in plan.content

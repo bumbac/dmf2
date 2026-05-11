@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from dmf2_agents.artifacts import ArtifactService
 from dmf2_agents.domain import ArtifactRecord, MessageRecord, ProgressRecord, StageDefinition
 from dmf2_agents.evaluators import HumanConfirmationStageEvaluationClient, ProviderStageEvaluationClient, StageEvaluator
@@ -14,7 +16,7 @@ class FakeStageEvaluationProvider:
         self.decision = decision
         self.calls: list[dict[str, object]] = []
 
-    def evaluate_stage(self, **kwargs) -> StageEvaluationDecision:
+    async def evaluate_stage(self, **kwargs) -> StageEvaluationDecision:
         self.calls.append(kwargs)
         return self.decision
 
@@ -28,19 +30,20 @@ def build_evaluator(client) -> tuple[StageEvaluator, Repository, MemoryService, 
     return StageEvaluator(repository=repository, memory=memory, artifacts=artifacts, client=client), repository, memory, artifacts
 
 
-def test_stage_evaluator_provider_mode_uses_persisted_context() -> None:
+@pytest.mark.anyio
+async def test_stage_evaluator_provider_mode_uses_persisted_context() -> None:
     provider = FakeStageEvaluationProvider(
         StageEvaluationDecision(passed=True, reasoning="Goal satisfied from persisted context.")
     )
     evaluator, repository, memory, artifacts = build_evaluator(ProviderStageEvaluationClient(provider))
     stage = StageDefinition(id="design", name="Design", goal="Produce plan", assigned_agents=["planner"])
 
-    repository.add_message(MessageRecord(session_id="s1", role="user", content="Need a plan"))
-    repository.add_message(MessageRecord(session_id="s1", role="assistant", content="Drafted the plan"))
-    memory.add_progress(
+    await repository.add_message(MessageRecord(session_id="s1", role="user", content="Need a plan"))
+    await repository.add_message(MessageRecord(session_id="s1", role="assistant", content="Drafted the plan"))
+    await memory.add_progress(
         ProgressRecord(session_id="s1", stage_id="design", agent_name="planner", status="completed", message="Plan drafted")
     )
-    artifacts.write_artifact(
+    await artifacts.write_artifact(
         ArtifactRecord(
             session_id="s1",
             stage_id="design",
@@ -51,7 +54,7 @@ def test_stage_evaluator_provider_mode_uses_persisted_context() -> None:
         )
     )
 
-    result = evaluator.evaluate(session_id="s1", stage=stage)
+    result = await evaluator.evaluate(session_id="s1", stage=stage)
 
     assert result.passed is True
     assert result.reasoning == "Goal satisfied from persisted context."
@@ -62,11 +65,12 @@ def test_stage_evaluator_provider_mode_uses_persisted_context() -> None:
     assert any("Artifact [design_note]" in message.content for message in provider.calls[0]["messages"])
 
 
-def test_stage_evaluator_human_confirmation_auto_approves() -> None:
+@pytest.mark.anyio
+async def test_stage_evaluator_human_confirmation_auto_approves() -> None:
     evaluator, _, _, _ = build_evaluator(HumanConfirmationStageEvaluationClient(auto_approve=True))
     stage = StageDefinition(id="validate", name="Validate", goal="Validate outputs", assigned_agents=["reviewer"])
 
-    result = evaluator.evaluate(session_id="s1", stage=stage)
+    result = await evaluator.evaluate(session_id="s1", stage=stage)
 
     assert result.passed is True
     assert result.source == "human_confirmation"
