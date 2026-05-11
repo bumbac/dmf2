@@ -102,7 +102,7 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 - The system must be able to run a concrete example workflow from checked-in sample input files to checked-in or generated output artifacts
 - The first example workflow must use `data/example/migration-clean/input` as input and produce Oracle-compatible migration outputs
 - The example workflow must not rely on live database access and must operate purely from provided files and persisted session state
-- The system must persist enough output for an operator to inspect what was read, what was produced, and whether validation passed
+- The system must persist enough output for an operator to inspect what was read, what was produced, and the evidence the validator used to determine whether the goal was met
 
 ### Skills
 
@@ -173,7 +173,7 @@ Not yet implemented:
 - Resume and recovery flows
 - Versioned database migrations and operator guidance for applying them to existing PostgreSQL databases
 - A reliable file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
-- A strict output contract, output file conventions, and validation rules for end-to-end example runs
+- Validator guidance and evaluator evidence strong enough for end-to-end example runs, without requiring rigid file-existence checks or artifact-shape rules as the completion gate
 - Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables instead of generic notes
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond file-path references rendered in prompts
 
@@ -188,7 +188,7 @@ Not yet implemented:
 
 ## Acceptance Criteria For Next Milestone
 
-- A live model-backed agent runner can complete at least one full staged workflow against a concrete deliverable contract
+- A live model-backed agent runner can complete at least one full staged workflow against a concrete deliverable goal with grounded validation
 - Session summaries remain bounded as session length grows
 - Progress and events are queryable through a thin service interface
 - The checked-in SQL migration example can be executed locally end to end and produce Oracle-compatible output artifacts that are inspectable after the run
@@ -229,9 +229,11 @@ Implementation note for the next persistence milestone:
 Implementation note for the first real example milestone:
 
 - The first end-to-end example should be treated as a product requirement, not just a demo prompt
-- The example should have explicit input discovery, output location, and validation expectations so success does not depend on generic stage notes
-- The live-model path should reuse the same stages, artifacts, and output contract as the general runtime path
-- Artifacts now persist both in PostgreSQL and as runtime files, so the example contract should treat artifact file references as part of the inspectable output surface
+- The example should have explicit input discovery and inspectable outputs so success does not depend on generic stage notes alone
+- Validation should remain goal-based: the validator should inspect produced outputs, persisted artifacts, progress, and request context with its available tools before determining whether the stage goal has been met
+- In the current implementation, the `reviewer` agent can inspect files with `read_file`, while `planner` and `builder` can also use `run_command` for broader shell-based inspection
+- The live-model path should reuse the same stages and inspectable output surface as the general runtime path without requiring rigid file-existence checks or artifact schemas as the completion gate
+- Artifacts now persist both in PostgreSQL and as runtime files, so artifact file references remain part of the inspectable output surface rather than a strict completion contract
 
 ## Open Questions
 

@@ -72,7 +72,7 @@ Implemented but intentionally simplified:
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
 - Stage evaluation is now routed through an evaluator service and can use provider-based judgment, but the evaluator evidence and prompt are still too permissive for the migration workflow
 - Artifact prompts now expose title, content, file reference, and a load hint, but artifact authoring conventions such as chunk labeling are still guided by prompt instructions rather than enforced by tool schema
-- The checked-in SQL migration example can be invoked through the CLI and the agents do inspect the checked-in input files, but the workflow still tends to stall before writing Oracle migration outputs and validation artifacts
+- The checked-in SQL migration example can be invoked through the CLI and the agents do inspect the checked-in input files, but the workflow still tends to stall before writing Oracle migration outputs and grounded validation evidence
 
 Not yet implemented:
 
@@ -81,8 +81,8 @@ Not yet implemented:
 - Resume behavior for existing sessions and tasks
 - Dedicated tables for stage runs and task lineage
 - A reliable example workflow path that reads `data/example/migration-clean/input` and writes real Oracle migration output files
-- A strict output contract and validation artifact flow for the SQL-to-Oracle example
-- Evaluator evidence and prompts strong enough to reject stages that only inspect files without producing required deliverables
+- Validator guidance and evaluator evidence strong enough for the SQL-to-Oracle example to produce inspectable outputs and let the validator determine goal completion from grounded inspection rather than rigid file checks
+- Evaluator evidence and prompts strong enough to reject stages that only inspect files shallowly without producing or validating meaningful deliverables
 - Output file conventions for generated example results
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond persisted file references in prompt context
 - A real schema migration path for existing PostgreSQL databases instead of relying on `create_all()` for fresh databases only
@@ -135,7 +135,7 @@ Definition of done:
 - Stage completion is based on whether the evaluator judges the stage goal satisfied
 - Artifacts are optional supporting evidence, not a required completion contract
 - Tests cover success and failure cases for goal-based evaluation
-- Remaining gap: evaluator prompts and evidence still need tightening for workflows that require concrete output files and validation artifacts
+- Remaining gap: evaluator prompts and evidence still need tightening for workflows that require concrete deliverables, while keeping completion goal-based rather than tied to rigid file existence or artifact shape checks
 
 ### 3. Expand planner to support read-only analysis
 
@@ -166,19 +166,20 @@ Why:
 
 - A local end-to-end example is now a concrete product need, not just a nice-to-have demo
 - The current sample run completes structurally but does not produce usable migration output
-- A reliable example contract will make it much easier to validate the live-model path afterward
+- The example needs grounded, inspectable validation, but success should still depend on whether the validator judges the stage goal met rather than on rigid file checklists
 
 What to implement:
 
 - Add explicit workflow conventions for the example input at `data/example/migration-clean/input`
 - Make the execution path read the example SQL files and produce Oracle-compatible output artifacts and output files instead of generic stage notes
-- Add validation that checks for expected deliverables, not just artifact existence or conversational evidence
+- Strengthen prompt and validation guidance so the validator inspects produced outputs, persisted artifacts, progress, and request context before deciding whether the validation goal is met
 - Ensure the final outputs are easy to inspect after the run
 
 Definition of done:
 
 - Running the CLI against the SQL migration sample produces Oracle-oriented outputs derived from the checked-in input files
-- Tests cover the deterministic example path and its output contract
+- Validation remains goal-based and is grounded in inspectable evidence gathered by the validator from produced files and persisted context
+- Tests cover the example path and the validator's grounded inspection behavior
 
 ### 5. Prove the live model-backed runner end to end
 
@@ -188,7 +189,7 @@ Why:
 
 - The provider boundary and Azure adapter exist, but the codebase has not yet proven a full staged workflow against a live model
 - The product goal still requires confidence that model decisions map cleanly into controlled tool execution
-- The checked-in example path should define the same output contract the live model will need to satisfy
+- The checked-in example path should define the same inspectable output surface and grounded validation behavior the live model will need to satisfy
 
 What to implement:
 
@@ -200,7 +201,7 @@ Definition of done:
 
 - A live model-backed session can complete at least one staged workflow
 - Existing tests remain green and additional coverage exists around provider decisions in runner and orchestration boundaries
-- Remaining gap: the live migration workflow still needs to satisfy a real deliverable contract rather than merely complete structurally
+- Remaining gap: the live migration workflow still needs to produce real inspectable deliverables and grounded validation evidence rather than merely complete structurally
 
 ### 5a. Add database schema migrations for durable environments
 
@@ -301,7 +302,7 @@ Definition of done:
 1. Workflow-driven runtime structure
 2. Goal-based stage evaluation
 3. Planner read-only analysis permissions
-4. Checked-in example workflow and strict output contract
+4. Checked-in example workflow with grounded validation
 5. End-to-end live model validation against that contract
 6. Database schema migrations for durable environments
 7. HTTP API and event streaming
@@ -309,7 +310,7 @@ Definition of done:
 9. Better summary and context compaction
 10. Resume behavior and lineage persistence
 
-This order still preserves momentum while keeping risk low. The runtime is now workflow-config-driven and goal-evaluated, so the next risk-reducing step is to make the checked-in example output-contract-driven before relying on the live path for product confidence.
+This order still preserves momentum while keeping risk low. The runtime is now workflow-config-driven and goal-evaluated, so the next risk-reducing step is to make the checked-in example produce inspectable outputs with grounded validation before relying on the live path for product confidence.
 
 ## Risks And Constraints
 
@@ -323,6 +324,7 @@ This order still preserves momentum while keeping risk low. The runtime is now w
 - A workflow config that defines stages and goals well is now more important because it becomes part of the runtime contract rather than passive metadata
 - Postgres schema updates are not versioned today; `create_all()` is sufficient for fresh databases but not for upgrading durable environments
 - A generic scaffold pipeline can appear healthy while still failing the product need for a concrete end-to-end example
+- Validation quality depends on the validator actually inspecting the produced outputs and persisted evidence with its available tools; weak guidance can still lead to shallow approval
 
 ## Testing Plan For Next Iterations
 
@@ -334,7 +336,7 @@ Add tests for:
 - End-to-end live-model workflow behavior once a safe integration test path exists
 - Summary compaction behavior on longer sessions
 - Path and command permission enforcement
-- Goal-based evaluator behavior using persisted context
+- Goal-based evaluator behavior using persisted context and validator-grounded inspection of produced outputs
 - Workflow-selected pipeline loading and plan derivation
 - Planner permission behavior for read-only inspection
 - Resume and lineage behavior once dedicated persistence is added
