@@ -17,10 +17,22 @@ def test_prompt_builder_includes_core_context(project_root) -> None:
         summary=SummaryRecord(session_id="s1", content="summary"),
         plan=PlanRecord(session_id="s1", content="plan"),
         progress=[ProgressRecord(session_id="s1", status="in_progress", message="working")],
-        artifacts=[ArtifactRecord(session_id="s1", kind="note", title="Note", content="artifact")],
+        artifacts=[
+            ArtifactRecord(
+                session_id="s1",
+                kind="note",
+                title="Note",
+                content="This is a chunk describing the generated artifact output.",
+                storage_kind="file",
+                file_path="runtime/artifacts/s1/0001-note.md",
+            )
+        ],
         skills=[skill] if skill else [],
     )
     assert "summary" in prompt
     assert "plan" in prompt
     assert "working" in prompt
-    assert "Note" in prompt
+    assert "Title: Note" in prompt
+    assert "This is a chunk describing the generated artifact output." in prompt
+    assert "runtime/artifacts/s1/0001-note.md" in prompt
+    assert "Use read_file" in prompt

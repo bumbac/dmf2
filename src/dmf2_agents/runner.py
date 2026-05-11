@@ -52,7 +52,6 @@ class AgentRunner:
             ProviderMessage(role="user", content=f"{prompt}\n\nAvailable tools:\n{tool_context}\n\nUser input:\n{user_input}")
         ]
         response = ""
-        stage_complete = False
         for _ in range(agent.max_iterations):
             decision = self.provider.decide(agent=agent, stage=stage, messages=messages, tools=available_tools)
             self.memory.append_message(
@@ -60,7 +59,6 @@ class AgentRunner:
             )
             messages.append(ProviderMessage(role="assistant", content=decision.response, tool_calls=decision.tool_calls))
             response = decision.response
-            stage_complete = decision.mark_stage_complete
             if not decision.tool_calls:
                 break
             for call in decision.tool_calls:
@@ -90,7 +88,6 @@ class AgentRunner:
             response = f"{response} Iteration limit reached.".strip()
         return AgentOutcome(
             response=response,
-            stage_complete=stage_complete,
             loaded_skills=[skill.name for skill in loaded_skill_defs],
             tool_actions=tool_actions,
             artifacts=artifacts_written,

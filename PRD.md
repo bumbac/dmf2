@@ -94,14 +94,13 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 
 - Tools must be discoverable and scoped to agents
 - Tools must support permission checks before execution
-- Initial tool set must include file read, file write, shell command execution, artifact writing, progress updates, skill loading, task delegation, and stage completion signaling
+- Initial tool set must include file read, file write, shell command execution, artifact writing, progress updates, skill loading, and task delegation
 
 ### Example Workflow Execution
 
 - The system must be able to run a concrete example workflow from checked-in sample input files to checked-in or generated output artifacts
 - The first example workflow must use `data/example/migration-clean/input` as input and produce Oracle-compatible migration outputs
 - The example workflow must not rely on live database access and must operate purely from provided files and persisted session state
-- The example workflow must have a deterministic success path for local development, even when a live model is not configured
 - The system must persist enough output for an operator to inspect what was read, what was produced, and whether validation passed
 
 ### Skills
@@ -154,7 +153,7 @@ Implemented now:
 Partially implemented:
 
 - Summary generation exists but is simple and not model-backed
-- Agent execution now has a provider-backed runtime boundary, with deterministic stub execution for tests and a LangChain Azure OpenAI adapter for structured output and tool-calling
+- Agent execution now has a provider-backed runtime boundary, with tests using explicit provider doubles and a LangChain Azure OpenAI adapter for structured output and tool-calling
 - Parent-child lineage uses `parent_session_id`, but there are not yet dedicated lineage or stage-run tables
 - Stage completion now uses an explicit evaluator and can be provider-backed, but evaluator evidence is still too permissive for workflows that require concrete deliverables
 - A CLI session can be run end to end against the sample SQL migration prompt, and agents inspect the checked-in SQL inputs, but the sample still does not reliably produce Oracle migration deliverables or a validation report
@@ -164,7 +163,7 @@ Not yet implemented:
 - HTTP API and event streaming
 - Rich permission policies for commands and filesystem paths
 - Resume and recovery flows
-- A deterministic file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
+- A reliable file-based example workflow that reads `data/example/migration-clean/input` and writes real Oracle migration outputs
 - A strict output contract, output file conventions, and validation rules for end-to-end example runs
 - Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables instead of generic notes
 
@@ -182,7 +181,6 @@ Not yet implemented:
 - Session summaries remain bounded as session length grows
 - Progress and events are queryable through a thin service interface
 - The checked-in SQL migration example can be executed locally end to end and produce Oracle-compatible output artifacts that are inspectable after the run
-- The same example has a deterministic local success path without requiring a live model, even if the quality is lower than the live path
 
 Implementation note for the completed delegation milestone:
 
@@ -202,6 +200,7 @@ Implementation note after the completed orchestration milestone:
 - Stage advancement now depends on an explicit evaluator service rather than the runner's completion flag
 - The current evaluator can perform provider-backed judgment against the stage goal, but its evidence and prompt contract still need tightening for concrete file-output workflows
 - Workflow selection and initial plan derivation are now driven by the configured workflow file
+- Workflow stages now own agent assignment, and stage names are descriptive labels rather than behavior-carrying identifiers
 
 Implementation note for the live-model milestone:
 
@@ -214,8 +213,7 @@ Implementation note for the first real example milestone:
 
 - The first end-to-end example should be treated as a product requirement, not just a demo prompt
 - The example should have explicit input discovery, output location, and validation expectations so success does not depend on generic stage notes
-- The stub backend may use deterministic logic for this example so local development can prove file-to-output behavior without external model access
-- The live-model path should reuse the same stages, artifacts, and output contract as the deterministic local path
+- The live-model path should reuse the same stages, artifacts, and output contract as the general runtime path
 
 ## Open Questions
 

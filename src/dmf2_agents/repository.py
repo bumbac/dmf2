@@ -108,6 +108,8 @@ class Repository:
             if existing is not None:
                 payload["version"] = existing.version + 1
                 record.version = payload["version"]
+            payload["storage_kind"] = record.storage_kind
+            payload["file_path"] = record.file_path
             db.add(ArtifactTable(**payload))
         return record
 
@@ -117,6 +119,23 @@ class Repository:
                 select(ArtifactTable).where(ArtifactTable.session_id == session_id).order_by(ArtifactTable.created_at.asc())
             ).scalars()
             return [ArtifactRecord.model_validate(row, from_attributes=True) for row in rows]
+
+    def update_artifact(self, record: ArtifactRecord) -> ArtifactRecord:
+        with self.database.session() as db:
+            row = db.get(ArtifactTable, record.id)
+            if row is None:
+                raise ValueError(f"unknown artifact: {record.id}")
+            row.session_id = record.session_id
+            row.stage_id = record.stage_id
+            row.author_agent = record.author_agent
+            row.kind = record.kind
+            row.title = record.title
+            row.content = record.content
+            row.storage_kind = record.storage_kind
+            row.file_path = record.file_path
+            row.version = record.version
+            row.created_at = record.created_at
+        return record
 
     def add_event(self, record: EventRecord) -> EventRecord:
         with self.database.session() as db:

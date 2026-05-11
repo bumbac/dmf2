@@ -1,0 +1,21 @@
+stages:
+  - id: intake
+    name: Scope The Work
+    goal: Understand the request and capture the important problem details.
+    assigned_agents: [planner]
+    max_loops: 2
+  - id: shape
+    name: Pick An Approach
+    goal: Produce a plan for execution.
+    assigned_agents: [planner]
+    max_loops: 2
+  - id: ship
+    name: Build The Thing
+    goal: Produce deliverable artifacts.
+    assigned_agents: [builder]
+    max_loops: 2
+  - id: inspect
+    name: Quality Gate
+    goal: Validate outputs and record the final status.
+    assigned_agents: [reviewer]
+    max_loops: 2

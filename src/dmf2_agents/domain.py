@@ -18,7 +18,6 @@ class AgentDefinition(BaseModel):
     system_prompt: str
     allowed_tools: list[str] = Field(default_factory=list)
     allowed_skills: list[str] = Field(default_factory=list)
-    stage_roles: list[str] = Field(default_factory=list)
     max_iterations: int = 3
 
 
@@ -90,6 +89,8 @@ class ArtifactRecord(BaseModel):
     kind: str
     title: str
     content: str
+    storage_kind: str = "inline"
+    file_path: str | None = None
     version: int = 1
     created_at: datetime = Field(default_factory=now_utc)
 
@@ -113,7 +114,6 @@ class TaskResult(BaseModel):
 
 class AgentOutcome(BaseModel):
     response: str
-    stage_complete: bool = False
     should_delegate: bool = False
     delegate_agent: str | None = None
     delegate_prompt: str | None = None

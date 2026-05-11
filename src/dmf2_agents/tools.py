@@ -80,7 +80,6 @@ class ToolRegistry:
             "update_progress": "Persist a progress entry.",
             "load_skill": "Load a reusable SKILL.md bundle.",
             "run_task_agent": "Run a subagent in an independent task session.",
-            "mark_stage_complete": "Signal stage completion.",
         }
 
     def tool_read_file(self, ctx: ToolContext, path: str) -> str:
@@ -145,6 +144,3 @@ class ToolRegistry:
             subagent_name=subagent_name,
             prompt=prompt,
         )
-
-    def tool_mark_stage_complete(self, ctx: ToolContext, reason: str) -> dict[str, str]:
-        return {"status": "completed", "reason": reason}

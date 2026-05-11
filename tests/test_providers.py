@@ -6,28 +6,10 @@ from pathlib import Path
 import pytest
 
 from dmf2_agents.agents import AgentRegistry
-from dmf2_agents.config import build_provider_settings, get_settings
-from dmf2_agents.providers import AgentDecision, GatewayConfig, GatewayProvider, ProviderMessage, StubProvider, ToolCallDecision, build_provider
+from dmf2_agents.config import Settings, build_provider_settings, get_settings
+from dmf2_agents.providers import AgentDecision, GatewayConfig, GatewayProvider, ProviderMessage, ToolCallDecision, build_provider
 from dmf2_agents.stages import StageRegistry
 from dmf2_agents.tools import ToolDefinition
-
-
-def test_stub_provider_returns_tool_calls(project_root: Path) -> None:
-    agent = AgentRegistry().get("planner")
-    stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
-    assert agent is not None
-    assert stage is not None
-    decision = StubProvider().decide(
-        agent=agent,
-        stage=stage,
-        messages=[ProviderMessage(role="user", content="prompt")],
-        tools=[
-            ToolDefinition(name="update_progress", description="progress"),
-            ToolDefinition(name="write_artifact", description="artifact"),
-        ],
-    )
-    assert decision.mark_stage_complete is True
-    assert [call.tool_name for call in decision.tool_calls] == ["update_progress", "write_artifact"]
 
 
 def test_settings_enable_azure_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -44,7 +26,7 @@ def test_settings_enable_azure_backend(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_gateway_provider_parses_structured_response(project_root: Path) -> None:
     class FakeMessage:
-        content = json.dumps({"response": "done", "mark_stage_complete": True})
+        content = json.dumps({"response": "done"})
         tool_calls = [
             type(
                 "ToolCall",
@@ -82,7 +64,6 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
     )
     assert isinstance(decision, AgentDecision)
     assert decision.response == "done"
-    assert decision.mark_stage_complete is True
     assert decision.tool_calls == [
         ToolCallDecision(tool_name="write_artifact", arguments={"kind": "note", "title": "t", "content": "c"})
     ]
@@ -90,7 +71,7 @@ def test_gateway_provider_parses_structured_response(project_root: Path) -> None
 
 def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> None:
     class FakeMessage:
-        content = json.dumps({"response": "done", "mark_stage_complete": True})
+        content = json.dumps({"response": "done"})
         tool_calls = [
             type(
                 "ToolCall",
@@ -130,17 +111,6 @@ def test_gateway_provider_rejects_invalid_tool_arguments(project_root: Path) -> 
         )
 
 
-def test_stub_provider_can_evaluate_stage(project_root: Path) -> None:
-    stage = StageRegistry(project_root / "examples" / "pipeline.yaml").get("discover")
-    assert stage is not None
-    decision = StubProvider().evaluate_stage(
-        stage=stage,
-        messages=[ProviderMessage(role="assistant", content="Completed analysis for the stage goal")],
-    )
-    assert decision.passed is True
-    assert "persisted evidence" in decision.reasoning
-
-
 def test_gateway_provider_parses_stage_evaluation_response(project_root: Path) -> None:
     class FakeMessage:
         content = json.dumps({"passed": True, "reasoning": "The stage goal is satisfied."})
@@ -172,6 +142,12 @@ def test_gateway_provider_parses_stage_evaluation_response(project_root: Path) -
     assert decision.reasoning == "The stage goal is satisfied."
 
 
-def test_build_provider_uses_stub_backend() -> None:
-    provider = build_provider(GatewayConfig(provider="stub", model="stub-model"))
-    assert isinstance(provider, StubProvider)
+def test_build_provider_rejects_unsupported_backend() -> None:
+    with pytest.raises(ValueError, match="unsupported provider"):
+        build_provider(GatewayConfig(provider="test", model="gpt"))
+
+
+def test_build_provider_settings_requires_complete_azure_configuration() -> None:
+    settings = Settings(model_backend="azure_openai", model_name="", model_endpoint=None, model_api_key=None)
+    with pytest.raises(ValueError, match="configuration is incomplete"):
+        build_provider_settings(settings)

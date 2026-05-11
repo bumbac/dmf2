@@ -19,21 +19,18 @@ class AgentRegistry:
                     "update_progress",
                     "load_skill",
                     "run_task_agent",
-                    "mark_stage_complete",
                     "read_file",
                     "run_command",
                 ],
                 allowed_skills=["planning", "artifact-writing"],
-                stage_roles=["discover", "design"],
             ),
             "builder": AgentDefinition(
                 name="builder",
                 description="Produces deliverables and execution artifacts",
                 mode="primary",
                 system_prompt="You are an execution agent. Produce deliverables and stage artifacts in a controlled way.",
-                allowed_tools=["write_artifact", "update_progress", "load_skill", "run_task_agent", "mark_stage_complete", "read_file", "write_file", "run_command"],
+                allowed_tools=["write_artifact", "update_progress", "load_skill", "run_task_agent", "read_file", "write_file", "run_command"],
                 allowed_skills=["artifact-writing"],
-                stage_roles=["execute"],
             ),
             "reviewer": AgentDefinition(
                 name="reviewer",
@@ -43,9 +40,8 @@ class AgentRegistry:
                     "You are a reviewer. Check whether stage outputs satisfy the stated goal and report risks. "
                     "Inspect produced files directly when they are available."
                 ),
-                allowed_tools=["write_artifact", "update_progress", "mark_stage_complete", "read_file"],
+                allowed_tools=["write_artifact", "update_progress", "read_file"],
                 allowed_skills=["code-review"],
-                stage_roles=["validate"],
             ),
         }
 

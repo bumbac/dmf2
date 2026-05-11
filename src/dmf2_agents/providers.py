@@ -23,7 +23,6 @@ class ToolCallDecision(BaseModel):
 class AgentDecision(BaseModel):
     response: str
     tool_calls: list[ToolCallDecision] = Field(default_factory=list)
-    mark_stage_complete: bool = False
 
 
 class StageEvaluationDecision(BaseModel):
@@ -75,74 +74,6 @@ class GatewayClient(Protocol):
     def create_stage_evaluation_response(self, *, stage: StageDefinition, messages: list[ProviderMessage]) -> Any: ...
 
 
-class StubProvider:
-    def decide(
-        self,
-        *,
-        agent: AgentDefinition,
-        stage: StageDefinition,
-        messages: list[ProviderMessage],
-        tools: list[ToolDefinition],
-    ) -> AgentDecision:
-        available_tools = {tool.name for tool in tools}
-        prompt = "\n\n".join(message.content for message in messages)
-        tool_messages = [message.content for message in messages if message.role == "tool"]
-        if any("failed:" in message for message in tool_messages):
-            return AgentDecision(
-                response=f"Agent {agent.name} encountered a tool failure and is stopping this turn.",
-                tool_calls=[],
-                mark_stage_complete=False,
-            )
-        tool_calls: list[ToolCallDecision] = []
-        if "update_progress" in available_tools:
-            tool_calls.append(
-                ToolCallDecision(
-                    tool_name="update_progress",
-                    arguments={"message": f"Working stage '{stage.id}'", "status": "in_progress"},
-                )
-            )
-        if "write_artifact" in available_tools:
-            tool_calls.append(
-                ToolCallDecision(
-                    tool_name="write_artifact",
-                    arguments={
-                        "kind": f"{stage.id}_note",
-                        "title": f"{stage.name} output",
-                        "content": f"Agent: {agent.name}\nGoal: {stage.goal}\n\nPrompt:\n{prompt}",
-                    },
-                )
-            )
-        if "validate" in stage.id and "run_task_agent" in available_tools:
-            tool_calls.append(
-                ToolCallDecision(
-                    tool_name="run_task_agent",
-                    arguments={"subagent_name": "reviewer", "prompt": f"Review artifacts for stage {stage.id}"},
-                )
-            )
-        return AgentDecision(
-            response=f"Agent {agent.name} advanced stage {stage.id}.",
-            tool_calls=tool_calls,
-            mark_stage_complete=True,
-        )
-
-    def evaluate_stage(
-        self,
-        *,
-        stage: StageDefinition,
-        messages: list[ProviderMessage],
-    ) -> StageEvaluationDecision:
-        has_evidence = any(message.content.strip() for message in messages)
-        if has_evidence:
-            return StageEvaluationDecision(
-                passed=True,
-                reasoning=f"Stub evaluator found persisted evidence for stage goal '{stage.goal}'.",
-            )
-        return StageEvaluationDecision(
-            passed=False,
-            reasoning=f"Stub evaluator found no persisted evidence for stage goal '{stage.goal}'.",
-        )
-
-
 class OpenAIGatewayClient:
     def __init__(self, config: GatewayConfig):
         if AzureChatOpenAI is None:
@@ -167,8 +98,7 @@ class OpenAIGatewayClient:
                     "role": "system",
                     "content": (
                         "You are a controlled stage-based agent. Use only the supplied tools when needed. "
-                        "Always return a final response message as strict JSON with fields 'response' and 'mark_stage_complete'. "
-                        "Set mark_stage_complete only when the stage work is done."
+                        "Always return a final response message as strict JSON with the field 'response'."
                     ),
                 },
                 *[self._serialize_message(message) for message in messages],
@@ -177,15 +107,14 @@ class OpenAIGatewayClient:
                 "type": "json_schema",
                 "json_schema": {
                     "name": "agent_decision",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "response": {"type": "string"},
-                            "mark_stage_complete": {"type": "boolean"},
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "response": {"type": "string"},
+                            },
+                            "required": ["response"],
+                            "additionalProperties": False,
                         },
-                        "required": ["response", "mark_stage_complete"],
-                        "additionalProperties": False,
-                    },
                     "strict": True,
                 },
             },
@@ -323,13 +252,6 @@ class OpenAIGatewayClient:
                 "required": ["subagent_name", "prompt"],
                 "additionalProperties": False,
             }
-        if tool_name == "mark_stage_complete":
-            return {
-                "type": "object",
-                "properties": {"reason": {"type": "string"}},
-                "required": ["reason"],
-                "additionalProperties": False,
-            }
         return {"type": "object", "properties": {}, "additionalProperties": True}
 
 
@@ -351,7 +273,6 @@ class GatewayProvider:
         for tool_call in self._extract_tool_calls(completion):
             tool_calls.append(tool_call)
         payload.setdefault("response", "Tool call requested.")
-        payload.setdefault("mark_stage_complete", False)
         try:
             return AgentDecision.model_validate({**payload, "tool_calls": tool_calls})
         except ValidationError as exc:  # pragma: no cover
@@ -439,6 +360,6 @@ class GatewayProvider:
 
 
 def build_provider(config: GatewayConfig) -> ProviderClient:
-    if config.provider == "stub":
-        return StubProvider()
+    if config.provider != "azure_openai":
+        raise ValueError(f"unsupported provider: {config.provider}")
     return GatewayProvider(OpenAIGatewayClient(config))

@@ -43,10 +43,10 @@ class TaskService:
         self.memory.append_message(MessageRecord(session_id=child.id, role="user", content=prompt))
         outcome = self.runner.run(session_id=child.id, stage=stage, agent=agent, user_input=prompt)
         summary = self.memory.update_summary(child.id)
-        self.repository.update_session_status(child.id, "completed" if outcome.stage_complete else "failed")
+        self.repository.update_session_status(child.id, "completed")
         return TaskResult(
             task_id=child.id,
-            status="completed" if outcome.stage_complete else "failed",
+            status="completed",
             summary=summary.content,
             artifact_ids=[artifact["id"] for artifact in outcome.artifacts],
             recommended_next_action="Continue current stage with the child session summary and artifacts in context.",

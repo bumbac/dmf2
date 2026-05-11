@@ -73,6 +73,8 @@ class ArtifactTable(Base):
     kind: Mapped[str] = mapped_column(String, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    storage_kind: Mapped[str] = mapped_column(String, nullable=False, default="inline")
+    file_path: Mapped[str | None] = mapped_column(String, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
 

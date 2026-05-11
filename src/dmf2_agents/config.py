@@ -10,8 +10,8 @@ from pydantic import BaseModel, Field
 class Settings(BaseModel):
     project_root: Path = Field(default_factory=lambda: Path.cwd())
     database_url: str = Field(default="")
-    model_backend: str = Field(default="stub")
-    model_name: str = Field(default="stub-model")
+    model_backend: str = Field(default="azure_openai")
+    model_name: str = Field(default="")
     model_endpoint: str | None = Field(default=None)
     model_api_key: str | None = Field(default=None)
     model_api_version: str | None = Field(default=None)
@@ -56,14 +56,12 @@ def get_settings() -> Settings:
         database = os.getenv("AGENTS_POSTGRES_DB", "dmf2_agents")
         auth = user if not password else f"{user}:{password}"
         database_url = f"postgresql+psycopg://{auth}@{host}:{port}/{database}"
-    backend = "stub"
-    if os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"):
-        backend = "azure_openai"
+    backend = os.getenv("MODEL_BACKEND", "azure_openai")
     return Settings(
         project_root=root,
         database_url=database_url,
         model_backend=backend,
-        model_name=os.getenv("AZURE_OPENAI_DEPLOYMENT", "stub-model"),
+        model_name=os.getenv("MODEL_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
         model_endpoint=os.getenv("MODEL_ENDPOINT") or os.getenv("AZURE_OPENAI_ENDPOINT"),
         model_api_key=os.getenv("MODEL_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY"),
         model_api_version=os.getenv("MODEL_API_VERSION") or os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
@@ -81,11 +79,18 @@ def get_settings() -> Settings:
 
 
 def build_provider_settings(settings: Settings) -> dict[str, str]:
+    model = settings.azure_openai_deployment or settings.model_name
+    endpoint = settings.model_endpoint or settings.azure_openai_endpoint or ""
+    api_key = settings.model_api_key or settings.azure_openai_api_key or ""
+    if settings.model_backend != "azure_openai":
+        raise ValueError(f"unsupported provider backend: {settings.model_backend}")
+    if not model or not endpoint or not api_key:
+        raise ValueError("Azure OpenAI provider configuration is incomplete. Set deployment/model, endpoint, and api key.")
     return {
         "provider": settings.model_backend,
-        "model": settings.azure_openai_deployment or settings.model_name,
-        "endpoint": settings.model_endpoint or settings.azure_openai_endpoint or "",
-        "api_key": settings.model_api_key or settings.azure_openai_api_key or "",
+        "model": model,
+        "endpoint": endpoint,
+        "api_key": api_key,
         "api_version": settings.model_api_version or settings.azure_openai_api_version,
         "temperature": settings.model_temperature,
         "max_tokens": settings.model_max_tokens,

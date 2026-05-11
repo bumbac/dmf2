@@ -46,7 +46,7 @@ def build_runner(project_root: Path, decision: AgentDecision) -> tuple[AgentRunn
     database.create_all()
     repo = Repository(database)
     memory = MemoryService(repo)
-    artifacts = ArtifactService(repo)
+    artifacts = ArtifactService(repo, root=project_root)
     tools = ToolRegistry(
         root=project_root,
         memory=memory,
@@ -70,7 +70,7 @@ def build_repository_runner(project_root: Path, provider) -> tuple[AgentRunner, 
     database.create_all()
     repo = Repository(database)
     memory = MemoryService(repo)
-    artifacts = ArtifactService(repo)
+    artifacts = ArtifactService(repo, root=project_root)
     tools = ToolRegistry(
         root=project_root,
         memory=memory,
@@ -104,7 +104,7 @@ def test_runner_executes_provider_tool_calls(project_root: Path) -> None:
                         ),
                     ],
                 ),
-                AgentDecision(response="done", mark_stage_complete=True, tool_calls=[]),
+                AgentDecision(response="done", tool_calls=[]),
             ]
         ),
     )
@@ -112,7 +112,7 @@ def test_runner_executes_provider_tool_calls(project_root: Path) -> None:
     agent = AgentRegistry().get("planner")
     assert agent is not None
     outcome = runner.run(session_id="s1", stage=stage, agent=agent, user_input="hello")
-    assert outcome.stage_complete is True
+    assert outcome.response == "done"
     assert outcome.progress_updates == ["working"]
     assert len(outcome.artifacts) == 1
     assert repo.list_progress("s1")[0].message == "working"
@@ -135,7 +135,7 @@ def test_runner_replays_tool_results_into_follow_up_provider_turn(project_root: 
                     )
                 ],
             ),
-            AgentDecision(response="done", mark_stage_complete=True, tool_calls=[]),
+            AgentDecision(response="done", tool_calls=[]),
         ]
         ),
     )
@@ -151,7 +151,6 @@ def test_runner_replays_tool_results_into_follow_up_provider_turn(project_root: 
     )
 
     assert outcome.response == "done"
-    assert outcome.stage_complete is True
     assert len(provider.calls) == 2
     second_call_messages = provider.calls[1]["messages"]
     assert any(message.role == "tool" and "update_progress" in message.content for message in second_call_messages)
@@ -200,7 +199,6 @@ def test_runner_stops_at_agent_iteration_limit(project_root: Path) -> None:
         user_input="hello",
     )
 
-    assert outcome.stage_complete is False
     assert outcome.response.endswith("Iteration limit reached.")
     assert len(provider.calls) == 1
     assert [item.message for item in repo.list_progress("s1")] == ["step 1"]
@@ -211,7 +209,7 @@ def test_runner_denied_tool_call_raises(project_root: Path) -> None:
     database.create_all()
     repo = Repository(database)
     memory = MemoryService(repo)
-    artifacts = ArtifactService(repo)
+    artifacts = ArtifactService(repo, root=project_root)
     tools = ToolRegistry(
         root=project_root,
         memory=memory,
@@ -254,7 +252,7 @@ def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None
                     response="inspecting inputs",
                     tool_calls=[ToolCallDecision(tool_name="read_file", arguments={"path": "examples/pipeline.yaml"})],
                 ),
-                AgentDecision(response="done", mark_stage_complete=True, tool_calls=[]),
+                AgentDecision(response="done", tool_calls=[]),
             ]
         ),
     )
@@ -268,7 +266,7 @@ def test_runner_planner_can_read_files_but_not_write(project_root: Path) -> None
         user_input="inspect",
     )
 
-    assert outcome.stage_complete is True
+    assert outcome.response == "done"
     stored_messages = repo.list_messages("s1")
     assert any(message.role == "tool" and "stages:" in message.content for message in stored_messages)
 
@@ -305,7 +303,7 @@ def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> No
                         ),
                     ],
                 ),
-                AgentDecision(response="validated", mark_stage_complete=True, tool_calls=[]),
+                AgentDecision(response="validated", tool_calls=[]),
             ]
         ),
     )
@@ -319,7 +317,7 @@ def test_runner_reviewer_can_read_files_for_validation(project_root: Path) -> No
         user_input="validate",
     )
 
-    assert outcome.stage_complete is True
+    assert outcome.response == "validated"
     assert repo.list_artifacts("s1")[0].kind == "validation_report"
     assert any(message.role == "tool" and "Discover Migration Inputs" in message.content for message in repo.list_messages("s1"))
 
@@ -338,7 +336,6 @@ def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> 
                     self.child_calls += 1
                     return AgentDecision(
                         response="review complete",
-                        mark_stage_complete=True,
                         tool_calls=[
                             ToolCallDecision(
                                 tool_name="write_artifact",
@@ -347,12 +344,11 @@ def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> 
                         ],
                     )
                 self.child_calls += 1
-                return AgentDecision(response="review finalized", mark_stage_complete=True, tool_calls=[])
+                return AgentDecision(response="review finalized", tool_calls=[])
             if self.parent_calls == 0:
                 self.parent_calls += 1
                 return AgentDecision(
                     response="delegating",
-                    mark_stage_complete=True,
                     tool_calls=[
                         ToolCallDecision(
                             tool_name="run_task_agent",
@@ -365,7 +361,7 @@ def test_runner_creates_real_child_session_for_task_tool(project_root: Path) -> 
                     ],
                 )
             self.parent_calls += 1
-            return AgentDecision(response="review finalized", mark_stage_complete=True, tool_calls=[])
+            return AgentDecision(response="review finalized", tool_calls=[])
 
     runner, repo, _ = build_repository_runner(project_root, TaskAwareProvider())
     stage = StageDefinition(id="validate", name="Validate", goal="Validate outputs", assigned_agents=["reviewer"])
