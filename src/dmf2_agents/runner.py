@@ -10,6 +10,8 @@ from .providers import ProviderClient, ProviderMessage
 from .tools import ToolContext, ToolRegistry
 
 
+SKILLS_LOADED_N_LIMIT = -1
+
 class AgentRunner:
     def __init__(
         self,
@@ -33,7 +35,7 @@ class AgentRunner:
         messages_history = await self.memory.recent_messages(session_id, limit=24)
         loaded_skill_defs = []
         if agent.allowed_skills:
-            loaded_skill_defs = [self.tools.skills.get(name) for name in agent.allowed_skills[:1] if self.tools.skills.get(name)]
+            loaded_skill_defs = [self.tools.skills.get(name) for name in agent.allowed_skills[:SKILLS_LOADED_N_LIMIT] if self.tools.skills.get(name)]
         prompt = self.prompt_builder.build(
             agent=agent,
             stage=stage,
