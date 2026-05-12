@@ -63,6 +63,7 @@ Implemented:
 - Workflow-defined agent assignment with arbitrary stage names and no stage-role coupling in agent definitions
 - Artifact persistence to PostgreSQL plus file-backed copies under `runtime/artifacts/**`, with persisted `file_path` references and `storage_kind`
 - Cross-stage context propagation from persisted messages, progress, artifacts, and historical tool outputs
+- Contextual runtime logging with pretty stdout output plus JSON file logs under `runtime/logs/dmf2-agents.jsonl`
 - Explicit fake-provider-based tests instead of a checked-in stub runtime backend
 - Tests covering core registry, prompting, persistence, permissions, and orchestration behavior
 
@@ -72,6 +73,7 @@ Implemented but intentionally simplified:
 - `run_task_agent` now spawns a true child session and returns a structured task result, but task semantics still reuse the parent stage context and there are not yet dedicated lineage tables
 - Summary generation is a simple rolling summary over recent messages, not model-generated compaction
 - Tool discoverability exists in code, but there is not yet an external session API or event stream surface
+- Logging is now wired through bootstrap, orchestration, runner, and task execution, but does not yet have rotation, retention, or redaction controls
 - Stage evaluation is now routed through an evaluator service and can use provider-based judgment, with prior-stage progress and artifacts included in evaluation context, but the evaluator evidence and prompt are still too permissive for the migration workflow
 - Artifact prompts now expose title, content, file reference, and a load hint, but artifact authoring conventions such as chunk labeling are still guided by prompt instructions rather than enforced by tool schema
 - The checked-in SQL migration example can now be invoked through the CLI, the agents inspect the checked-in input files, and the workflow writes Oracle-oriented SQL outputs, but grounded validation evidence and output conventions are still weaker than the target contract
@@ -88,6 +90,7 @@ Not yet implemented:
 - Strict read-only command enforcement for planner and reviewer shell usage
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond persisted file references in prompt context
 - A real schema migration path for existing PostgreSQL databases instead of relying on `create_all()` for fresh databases only
+- Logging rotation, retention, and sensitive-data redaction policy for durable environments
 
 ## Next Steps
 
@@ -256,7 +259,7 @@ What to implement:
 
 - Add policy checks for filesystem paths and shell commands
 - Add stage-specific tool restrictions in addition to agent-specific restrictions
-- Add structured logging around tool execution and failures
+- Extend the existing structured logging with rotation, retention, and redaction controls
 
 Definition of done:
 

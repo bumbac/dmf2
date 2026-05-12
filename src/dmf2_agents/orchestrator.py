@@ -9,6 +9,7 @@ from .artifacts import ArtifactService
 from .domain import EventRecord, MessageRecord, SessionRecord
 from .evaluators import StageEvaluator
 from .events import EventBus
+from .logging import app_logger, log_context
 from .memory import MemoryService
 from .repository import Repository
 from .runner import AgentRunner
@@ -74,22 +75,28 @@ class SessionOrchestrator:
 
     async def run(self, user_input: str) -> str:
         session = await self.repository.create_session(SessionRecord(title=user_input[:80] or "session"))
-        await self.memory.append_message(MessageRecord(session_id=session.id, role="user", content=user_input))
-        await self.memory.set_plan(session.id, self._build_plan(user_input))
-        await self.events.publish(EventRecord(session_id=session.id, event_type="session.started", payload={"title": session.title}))
-        initial_state: GraphState = {
-            "session_id": session.id,
-            "user_input": user_input,
-            "current_stage_id": None,
-            "stage_queue": [item.id for item in self.stages.list()],
-            "stage_attempts": {},
-            "goal_reached": False,
-            "halted": False,
-        }
-        final_state = await self.graph.ainvoke(initial_state)
-        await self.memory.update_summary(session.id)
-        await self.repository.update_session_status(session.id, "completed" if final_state["goal_reached"] else "failed")
-        await self.events.publish(EventRecord(session_id=session.id, event_type="session.finished", payload=final_state))
+        with log_context(session_id=session.id):
+            app_logger.bind(title=session.title).info("session_created")
+            await self.memory.append_message(MessageRecord(session_id=session.id, role="user", content=user_input))
+            await self.memory.set_plan(session.id, self._build_plan(user_input))
+            await self.events.publish(EventRecord(session_id=session.id, event_type="session.started", payload={"title": session.title}))
+            initial_state: GraphState = {
+                "session_id": session.id,
+                "user_input": user_input,
+                "current_stage_id": None,
+                "stage_queue": [item.id for item in self.stages.list()],
+                "stage_attempts": {},
+                "goal_reached": False,
+                "halted": False,
+            }
+            final_state = await self.graph.ainvoke(initial_state)
+            await self.memory.update_summary(session.id)
+            status = "completed" if final_state["goal_reached"] else "failed"
+            await self.repository.update_session_status(session.id, status)
+            await self.events.publish(EventRecord(session_id=session.id, event_type="session.finished", payload=final_state))
+            app_logger.bind(status=status, goal_reached=final_state["goal_reached"], halted=final_state["halted"]).info(
+                "session_finished"
+            )
         return session.id
 
     async def _choose_stage(self, state: GraphState) -> GraphState:
@@ -98,6 +105,8 @@ class SessionOrchestrator:
             return state
         stage_id = state["stage_queue"][0]
         state["current_stage_id"] = stage_id
+        with log_context(session_id=state["session_id"], stage_id=stage_id):
+            app_logger.bind(queue_length=len(state["stage_queue"])).info("stage_selected")
         await self.events.publish(EventRecord(session_id=state["session_id"], event_type="stage.entered", payload={"stage_id": stage_id}))
         return state
 
@@ -114,7 +123,15 @@ class SessionOrchestrator:
         attempts = dict(state["stage_attempts"])
         attempts[stage.id] = attempts.get(stage.id, 0) + 1
         state["stage_attempts"] = attempts
-        outcome = await self.runner.run(session_id=state["session_id"], stage=stage, agent=agent, user_input=state["user_input"])
+        with log_context(session_id=state["session_id"], stage_id=stage.id, agent_name=agent.name):
+            app_logger.bind(attempt=attempts[stage.id]).info("stage_run_started")
+            outcome = await self.runner.run(session_id=state["session_id"], stage=stage, agent=agent, user_input=state["user_input"])
+            app_logger.bind(
+                attempt=attempts[stage.id],
+                tool_actions=len(outcome.tool_actions),
+                artifacts=len(outcome.artifacts),
+                progress_updates=len(outcome.progress_updates),
+            ).info("stage_run_finished")
         await self.events.publish(
             EventRecord(
                 session_id=state["session_id"],
@@ -131,7 +148,11 @@ class SessionOrchestrator:
         if stage is None:
             state["halted"] = True
             return state
-        evaluation = await self.evaluator.evaluate(session_id=state["session_id"], stage=stage)
+        with log_context(session_id=state["session_id"], stage_id=stage.id):
+            evaluation = await self.evaluator.evaluate(session_id=state["session_id"], stage=stage)
+            app_logger.bind(passed=evaluation.passed, source=evaluation.source, reasoning_length=len(evaluation.reasoning)).info(
+                "stage_evaluated"
+            )
         if evaluation.passed:
             state["stage_queue"] = state["stage_queue"][1:]
             await self.events.publish(

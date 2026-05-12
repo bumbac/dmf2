@@ -29,6 +29,7 @@ The runtime is composed from small services with explicit boundaries.
 | CLI              | Parses prompt and workflow path, starts the app              | `src/dmf2_agents/cli.py`          |
 | Bootstrap        | Wires the whole runtime together                             | `src/dmf2_agents/bootstrap.py`    |
 | Config           | Loads `.env` and runtime settings                            | `src/dmf2_agents/config.py`       |
+| Logging          | Configures pretty stdout plus JSON file sinks with context   | `src/dmf2_agents/logging.py`      |
 | Stage registry   | Loads workflow YAML into `StageDefinition` objects           | `src/dmf2_agents/stages.py`       |
 | Agent registry   | Declares built-in agents and tool permissions                | `src/dmf2_agents/agents.py`       |
 | Tool registry    | Exposes runtime tools and enforces per-agent permissions     | `src/dmf2_agents/tools.py`        |
@@ -87,21 +88,57 @@ Relevant code:
 Bootstrap does the following in order:
 
 1. Loads settings with `get_settings()`.
-2. Opens the configured database via `Database(settings.database_url)`.
-3. Calls `database.create_all()`.
-4. Creates `Repository`, `MemoryService`, `ArtifactService`, and `EventBus`.
-5. Loads the workflow YAML into `StageRegistry`.
-6. Creates the built-in `AgentRegistry`.
-7. Loads skills from `skills/`.
-8. Builds the `PermissionService` from each agent's allowed tool list.
-9. Creates `ToolRegistry`.
-10. Builds the provider client from Azure OpenAI settings.
-11. Creates the stage evaluator.
-12. Creates the `AgentRunner`.
-13. Wires `TaskService` into the tool registry as the subagent executor.
-14. Returns `SessionOrchestrator`.
+2. Configures runtime logging.
+3. Opens the configured database via `Database(settings.database_url)`.
+4. Calls `database.create_all()`.
+5. Creates `Repository`, `MemoryService`, `ArtifactService`, and `EventBus`.
+6. Loads the workflow YAML into `StageRegistry`.
+7. Creates the built-in `AgentRegistry`.
+8. Loads skills from `skills/`.
+9. Builds the `PermissionService` from each agent's allowed tool list.
+10. Creates `ToolRegistry`.
+11. Builds the provider client from Azure OpenAI settings.
+12. Creates the stage evaluator.
+13. Creates the `AgentRunner`.
+14. Wires `TaskService` into the tool registry as the subagent executor.
+15. Returns `SessionOrchestrator`.
 
 One important implementation detail: there is no separate migration toolchain yet. Schema creation currently depends on `Base.metadata.create_all(...)`, which is fine for fresh databases but not a durable schema migration strategy.
+
+## Runtime Logging
+
+The runtime now initializes logging once during bootstrap and uses two sinks:
+
+1. Pretty human-readable logs to `stdout`
+2. JSON-serialized logs to a file when `LOG_FILE` is configured
+
+By default, the JSON log file path is `runtime/logs/dmf2-agents.jsonl`.
+
+The logging implementation lives in `src/dmf2_agents/logging.py` and uses `contextvars` to enrich every log record with runtime context when available:
+
+- `session_id`
+- `parent_session_id`
+- `agent_name`
+- `stage_id`
+
+That context is bound at runtime boundaries such as:
+
+- top-level session execution in `SessionOrchestrator.run()`
+- stage execution in `SessionOrchestrator._run_stage()`
+- stage evaluation in `SessionOrchestrator._evaluate()`
+- iterative agent turns in `AgentRunner.run()`
+- child task sessions in `TaskService.run_subagent()`
+
+The current instrumentation focuses on high-signal lifecycle events rather than full payload logging. Examples include:
+
+- session start and finish
+- stage selection and evaluation
+- agent iteration start and finish
+- provider decision receipt
+- tool call start, completion, denial, and failure
+- subagent session start and finish
+
+The current implementation intentionally avoids logging full prompt bodies, artifact contents, or full tool outputs by default.
 
 ## Workflow YAML
 

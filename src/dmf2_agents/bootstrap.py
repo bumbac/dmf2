@@ -7,6 +7,7 @@ from .artifacts import ArtifactService
 from .config import build_provider_settings, get_settings
 from .evaluators import HumanConfirmationStageEvaluationClient, ProviderStageEvaluationClient, StageEvaluator
 from .events import EventBus
+from .logging import configure_logging
 from .memory import MemoryService
 from .orchestrator import SessionOrchestrator
 from .prompting import PromptBuilder
@@ -22,6 +23,7 @@ from .tools import PermissionService, ToolRegistry
 
 def build_app(project_root: Path | None = None, workflow_path: Path | None = None) -> SessionOrchestrator:
     settings = get_settings()
+    configure_logging(level=settings.log_level, log_file=settings.log_file)
     root = project_root or settings.project_root
     database = Database(settings.database_url)
     database.create_all()

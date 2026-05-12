@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 class Settings(BaseModel):
     project_root: Path = Field(default_factory=lambda: Path.cwd())
     database_url: str = Field(default="")
+    log_level: str = Field(default="INFO")
+    log_file: Path | None = Field(default_factory=lambda: Path.cwd() / "runtime" / "logs" / "dmf2-agents.jsonl")
     model_backend: str = Field(default="azure_openai")
     model_name: str = Field(default="")
     model_endpoint: str | None = Field(default=None)
@@ -60,6 +62,8 @@ def get_settings() -> Settings:
     return Settings(
         project_root=root,
         database_url=database_url,
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        log_file=Path(os.getenv("LOG_FILE")) if os.getenv("LOG_FILE") else root / "runtime" / "logs" / "dmf2-agents.jsonl",
         model_backend=backend,
         model_name=os.getenv("MODEL_NAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
         model_endpoint=os.getenv("MODEL_ENDPOINT") or os.getenv("AZURE_OPENAI_ENDPOINT"),

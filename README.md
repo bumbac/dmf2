@@ -8,6 +8,7 @@ The runtime is now functional beyond the initial scaffold. It currently supports
 
 - workflow-driven stage orchestration from YAML
 - PostgreSQL-backed durable state for sessions, messages, plans, summaries, progress, artifacts, and events
+- contextual runtime logging with pretty stdout output and JSON file logs
 - live Azure OpenAI tool-calling through a provider boundary
 - scoped built-in agents with mode-specific prompts and permissions
 - artifact persistence both in PostgreSQL and under `runtime/artifacts/**`
@@ -110,6 +111,8 @@ Install dependencies:
 uv sync
 ```
 
+Create local environment settings from `.env.example` and fill in your real provider credentials before running the CLI.
+
 Run tests:
 
 ```bash
@@ -128,9 +131,31 @@ Run the migration workflow:
 uv run dmf2-agents --workflow examples/migration-clean.yaml "Do it"
 ```
 
+## Logging
+
+The runtime now configures logging automatically during bootstrap.
+
+- stdout always uses a pretty human-readable log format intended for local development
+- JSON logs are also written to `runtime/logs/dmf2-agents.jsonl`
+- every log record is enriched with runtime context when available:
+  - `session_id`
+  - `parent_session_id`
+  - `agent_name`
+  - `stage_id`
+
+Useful environment variables:
+
+```bash
+LOG_LEVEL=INFO
+LOG_FILE=runtime/logs/dmf2-agents.jsonl
+```
+
+If `LOG_FILE` is set, the parent directory is created automatically.
+
 ## Known Gaps
 
 - The migration workflow currently writes output files arbitrarily instead of a canonical output directory.
 - Stage evaluation is grounded in persisted evidence, but the validation contract is still looser than the final product target.
 - Historical tool outputs are carried forward as system context rather than as a richer structured event model.
 - Database schema evolution still relies on table creation for fresh setups; existing PostgreSQL instances still need explicit migrations.
+- Logging is now structured and contextual, but it does not yet include rotation, retention, or secret-redaction policies.

@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from loguru import logger
 
 from dmf2_agents.agents import AgentRegistry
 from dmf2_agents.artifacts import ArtifactService
 from dmf2_agents.domain import AgentDefinition, StageDefinition
+from dmf2_agents.logging import _patch_record, configure_logging
 from dmf2_agents.memory import MemoryService
 from dmf2_agents.prompting import PromptBuilder
 from dmf2_agents.providers import AgentDecision, ToolCallDecision
@@ -439,3 +441,65 @@ async def test_runner_creates_real_child_session_for_task_tool(project_root: Pat
     assert len(parent_artifacts) == 1
     assert parent_artifacts[0].title == "Review"
     assert "review finalized" in outcome.response
+
+
+@pytest.mark.anyio
+async def test_logging_includes_session_and_agent_context(project_root: Path) -> None:
+    records: list[dict[str, object]] = []
+
+    def capture(message) -> None:
+        records.append(message.record)
+
+    configure_logging(level="INFO", log_file=None)
+    sink_id = logger.add(capture)
+    logger.configure(patcher=_patch_record)
+    try:
+        class TaskAwareProvider:
+            def __init__(self):
+                self.parent_calls = 0
+                self.child_calls = 0
+
+            async def decide(self, **kwargs) -> AgentDecision:
+                session_messages = kwargs["messages"]
+                user_prompt = session_messages[0].content
+                if "Review the current stage artifacts." in user_prompt:
+                    if self.child_calls == 0:
+                        self.child_calls += 1
+                        return AgentDecision(response="child running", tool_calls=[])
+                    self.child_calls += 1
+                    return AgentDecision(response="child done", tool_calls=[])
+                if self.parent_calls == 0:
+                    self.parent_calls += 1
+                    return AgentDecision(
+                        response="delegating",
+                        tool_calls=[
+                            ToolCallDecision(
+                                tool_name="run_task_agent",
+                                arguments={"subagent_name": "reviewer", "prompt": "Review the current stage artifacts."},
+                            )
+                        ],
+                    )
+                self.parent_calls += 1
+                return AgentDecision(response="done", tool_calls=[])
+
+        runner, _, _ = build_repository_runner(project_root, TaskAwareProvider())
+        agent = AgentRegistry().get("planner")
+        assert agent is not None
+
+        await runner.run(
+            session_id="s-parent",
+            stage=StageDefinition(id="validate", name="Validate", goal="Inspect outputs", assigned_agents=["planner"]),
+            agent=agent,
+            user_input="review this",
+        )
+    finally:
+        logger.remove(sink_id)
+
+    agent_start = next(record for record in records if record["message"] == "agent_run_started" and record["extra"]["session_id"] == "s-parent")
+    assert agent_start["extra"]["agent_name"] == "planner"
+    assert agent_start["extra"]["stage_id"] == "validate"
+
+    subagent_start = next(record for record in records if record["message"] == "subagent_session_started")
+    assert subagent_start["extra"]["parent_session_id"] == "s-parent"
+    assert subagent_start["extra"]["agent_name"] == "reviewer"
+    assert subagent_start["extra"]["stage_id"] == "validate"

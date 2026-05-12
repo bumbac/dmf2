@@ -134,6 +134,8 @@ Teams need agent systems that are easier to control, inspect, and reason about t
 
 - The system must emit events for session lifecycle, stage transitions, progress updates, and completion
 - Event history must be persisted
+- The system must emit contextual runtime logs that can be correlated by session, stage, and agent
+- Runtime logs should be readable in local development and machine-readable in durable storage
 - The system should later expose a streaming event interface for clients
 
 ## Current Implementation Status
@@ -163,6 +165,7 @@ Implemented now:
 - LangChain-based Azure OpenAI adapter for structured output and tool-calling
 - Live Azure tool-calling compatibility for strict schemas and multi-turn tool replay
 - The checked-in migration workflow now completes successfully against a live model and produces Oracle-oriented SQL outputs under `oracle/`
+- Contextual runtime logging with pretty stdout output and JSON file logging under `runtime/logs/dmf2-agents.jsonl`
 
 Partially implemented:
 
@@ -184,6 +187,7 @@ Not yet implemented:
 - Validator guidance and evaluator evidence strong enough for end-to-end example runs, without requiring rigid file-existence checks or artifact-shape rules as the completion gate
 - Prompt and evaluator constraints strong enough for the SQL-to-Oracle sample to produce and validate useful deliverables with deterministic paths and stronger validation artifacts
 - A dedicated artifact-loading tool or richer artifact retrieval API beyond file-path references rendered in prompts
+- Logging sink rotation, retention, and secret-redaction policy
 
 ## Architecture Requirements
 
@@ -228,6 +232,7 @@ Implementation note for the live-model milestone:
 - Provider adapters may use structured output and tool-calling features, but must return normalized decisions rather than execute tools directly
 - The model integration layer should be shaped like a swappable gateway client so model names, endpoints, and runtime parameters can change without changing orchestration code
 - The current live-model implementation uses `langchain-openai` with Azure OpenAI and must preserve normalized decisions and tool-call replay semantics at the provider boundary
+- Runtime observability now includes contextual logs keyed by session, parent session, stage, and agent, with pretty stdout for local use and JSON file output for durable inspection
 
 Implementation note for the next persistence milestone:
 
